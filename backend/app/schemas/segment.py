@@ -22,6 +22,7 @@ class SegmentResponse(BaseModel):
     gradient: float | None
     curve_radius: float | None
     operating_speed: float | None
+    max_speed: float | None
     traffic_level: str | None
     pedestrian_activity: str | None
 

@@ -399,8 +399,8 @@ function LocationPicker({
         title: "Audit location",
       });
 
-    marker.addListener(
-      "dragend",
+    marker.addEventListener(
+      "gmp-dragend",
       async (event) => {
         const markerPosition =
           event.latLng ||

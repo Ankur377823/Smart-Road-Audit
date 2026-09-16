@@ -214,6 +214,9 @@ class AuditProcessingService:
                 metrics = self._build_demo_metrics(
                     road_class=road.road_class,
                     index=index,
+                    operating_speed_kmh=(
+                        road.operating_speed_kmh
+                    ),
                 )
                 risk = self.risk_scoring_service.calculate_risk(
                     metrics
@@ -229,6 +232,11 @@ class AuditProcessingService:
                     gradient=metrics.gradient,
                     curve_radius=metrics.curve_radius,
                     operating_speed=metrics.operating_speed,
+                    max_speed=(
+                        road.max_speed_kmh
+                        if road.max_speed_kmh is not None
+                        else self._demo_max_speed(road.road_class)
+                    ),
                     traffic_level=metrics.traffic_level,
                     pedestrian_activity=metrics.pedestrian_activity,
                     risk_score=risk.risk_score,
@@ -284,40 +292,51 @@ class AuditProcessingService:
     def _build_demo_metrics(
         road_class: str,
         index: int,
+        operating_speed_kmh: float | None = None,
     ) -> SegmentMetrics:
-        """Provide clearly labeled deterministic metrics for demo audits."""
-        traffic_by_class = {
-            "local": "low",
-            "collector": "medium",
-            "arterial": "high",
+        """Build metrics from route data with a demo fallback."""
+        demo_profiles = {
+            "local": [
+                (30.0, "low", "low"),
+                (35.0, "low", "medium"),
+                (40.0, "medium", "medium"),
+            ],
+            "collector": [
+                (45.0, "medium", "medium"),
+                (50.0, "medium", "high"),
+                (55.0, "high", "medium"),
+            ],
+            "arterial": [
+                (55.0, "medium", "medium"),
+                (60.0, "high", "medium"),
+                (65.0, "high", "high"),
+            ],
         }
-        pedestrian_by_class = {
-            "local": "medium",
-            "collector": "medium",
-            "arterial": "high",
-        }
-        speed_by_class = {
-            "local": 30.0,
-            "collector": 45.0,
-            "arterial": 65.0,
-        }
+        demo_profile = demo_profiles.get(
+            road_class,
+            demo_profiles["collector"],
+        )[index % 3]
 
         return SegmentMetrics(
             gradient=round(1.5 + (index % 3) * 1.25, 2),
             curve_radius=350.0 - (index % 3) * 60.0,
-            operating_speed=speed_by_class.get(
-                road_class,
-                40.0,
+            operating_speed=(
+                round(operating_speed_kmh, 2)
+                if operating_speed_kmh is not None
+                else demo_profile[0]
             ),
-            traffic_level=traffic_by_class.get(
-                road_class,
-                "medium",
-            ),
-            pedestrian_activity=pedestrian_by_class.get(
-                road_class,
-                "medium",
-            ),
+            traffic_level=demo_profile[1],
+            pedestrian_activity=demo_profile[2],
         )
+
+    @staticmethod
+    def _demo_max_speed(road_class: str) -> float:
+        """Return the demo reference maximum speed for reporting only."""
+        return {
+            "local": 40.0,
+            "collector": 60.0,
+            "arterial": 80.0,
+        }.get(road_class, 60.0)
 
     # ==========================================================
     # ROAD DATA
@@ -390,6 +409,9 @@ class AuditProcessingService:
                         road_class=road.road_class,
                         length_m=road.length_m,
                         geometry=road.geometry,
+                        operating_speed_kmh=(
+                            road.operating_speed_kmh
+                        ),
                     )
                 )
 
@@ -440,6 +462,8 @@ class AuditProcessingService:
                         radius_m,
                     ),
                     geometry=geometry,
+                    operating_speed_kmh=None,
+                    max_speed_kmh=None,
                 )
             )
 

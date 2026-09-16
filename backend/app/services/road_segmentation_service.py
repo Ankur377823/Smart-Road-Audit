@@ -15,6 +15,8 @@ class SegmentedRoad:
     road_class: str
     length_m: float
     geometry: str | None = None
+    operating_speed_kmh: float | None = None
+    max_speed_kmh: float | None = None
 
 
 class RoadSegmentationService:
@@ -116,6 +118,8 @@ class RoadSegmentationService:
             "road_class": road.road_class,
             "length_m": float(road.length_m),
             "geometry": road.geometry,
+            "operating_speed_kmh": road.operating_speed_kmh,
+            "max_speed_kmh": road.max_speed_kmh,
         }
 
     @staticmethod
@@ -136,6 +140,8 @@ class RoadSegmentationService:
                 2,
             ),
             geometry=segment.geometry,
+            operating_speed_kmh=segment.operating_speed_kmh,
+            max_speed_kmh=segment.max_speed_kmh,
         )
 
     @classmethod

@@ -13,6 +13,8 @@ class RoadServiceResult:
     road_class: str
     length_m: float
     geometry: str | None
+    operating_speed_kmh: float | None = None
+    max_speed_kmh: float | None = None
 
 
 class GoogleRoadService:
@@ -119,6 +121,13 @@ class GoogleRoadService:
                     road_class=road_class,
                     length_m=step.distance_m,
                     geometry=step.geometry,
+                    operating_speed_kmh=(
+                        step.distance_m
+                        / step.static_duration_s
+                        * 3.6
+                        if step.static_duration_s > 0
+                        else None
+                    ),
                 )
             )
 
@@ -184,6 +193,7 @@ class GoogleRoadService:
                     geometry=self._clean_geometry(
                         road.geometry
                     ),
+                    operating_speed_kmh=road.operating_speed_kmh,
                 )
             )
 

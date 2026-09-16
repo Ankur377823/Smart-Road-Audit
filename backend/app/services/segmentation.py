@@ -14,6 +14,8 @@ class RoadSegmentData:
     road_class: str
     length_m: float
     geometry: str | None = None
+    operating_speed_kmh: float | None = None
+    max_speed_kmh: float | None = None
 
 
 class SegmentationService:
@@ -63,6 +65,8 @@ class SegmentationService:
         road_class: str,
         total_length_m: float,
         geometry: str | None = None,
+        operating_speed_kmh: float | None = None,
+        max_speed_kmh: float | None = None,
     ) -> list[RoadSegmentData]:
         """
         Divide one road into smaller audit segments.
@@ -120,6 +124,8 @@ class SegmentationService:
                         2,
                     ),
                     geometry=geometry,
+                    operating_speed_kmh=operating_speed_kmh,
+                    max_speed_kmh=max_speed_kmh,
                 )
             )
 
@@ -199,6 +205,12 @@ class SegmentationService:
                     total_length_m=length_m,
                     geometry=road.get(
                         "geometry"
+                    ),
+                    operating_speed_kmh=road.get(
+                        "operating_speed_kmh"
+                    ),
+                    max_speed_kmh=road.get(
+                        "max_speed_kmh"
                     ),
                 )
             )
