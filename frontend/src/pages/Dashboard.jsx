@@ -194,7 +194,17 @@ function Dashboard() {
 
             </div>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/scanner")
+                }
+                className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-5 py-3 text-sm font-semibold text-sky-700 transition hover:bg-sky-500/20"
+              >
+                Scan Potholes
+              </button>
 
               <button
                 type="button"

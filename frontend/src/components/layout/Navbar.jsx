@@ -60,6 +60,14 @@ function Navbar() {
 
           <button
             type="button"
+            onClick={() => navigate("/scanner")}
+            className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3.5 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-500/20"
+          >
+            Pothole Scanner
+          </button>
+
+          <button
+            type="button"
             onClick={() =>
               navigate("/audits/create")
             }
@@ -123,6 +131,14 @@ function Navbar() {
             className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
           >
             History
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate("/scanner")}
+            className="shrink-0 rounded-lg bg-sky-500/15 text-sky-700 px-3 py-2 text-sm font-semibold"
+          >
+            Pothole Scanner
           </button>
 
           <button
