@@ -103,3 +103,21 @@ def test_database_init_runs_when_saving_directly():
     save_audit(audit)
 
     assert get_audit("audit-1")["id"] == "audit-1"
+
+
+def test_demo_mode_generates_fallback_roads_when_google_is_unavailable():
+    from app.services.audit_processing_service import AuditProcessingService
+
+    service = AuditProcessingService.__new__(AuditProcessingService)
+
+    roads = service._generate_demo_roads(
+        latitude=12.9716,
+        longitude=77.5946,
+        road_class="collector",
+        radius_m=1000,
+    )
+
+    assert roads
+    assert len(roads) >= 1
+    assert all(road.road_class == "collector" for road in roads)
+    assert all(road.length_m > 0 for road in roads)
