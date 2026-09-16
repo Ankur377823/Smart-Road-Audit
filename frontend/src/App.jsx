@@ -1,95 +1,99 @@
-import { useEffect, useState } from 'react'
-import Dashboard from './components/dashboard/Dashboard'
-import LoginPage from './components/auth/LoginPage'
-import TerminalLanding from './components/landing/TerminalLanding'
-import { createAudit, getAudit, listAudits } from './services/auditApi'
+import { Navigate, Route, Routes } from "react-router-dom";
 
-const defaultForm = {
-  center_lat: 12.9716,
-  center_lng: 77.5946,
-  radius_m: 1000,
-  road_class: 'collector',
-}
+import Landing from "./pages/Landing";
+import Login from "./pages/Login";
+import Dashboard from "./pages/Dashboard";
+import CreateAudit from "./pages/CreateAudit";
+import AuditDetails from "./pages/AuditDetails";
+import AuditHistory from "./pages/AuditHistory";
+import PotholeScanPage from "./pages/PotholeScanPage";
 
 function App() {
-  const [view, setView] = useState('hero')
-  const [loginForm, setLoginForm] = useState({ email: '', password: '' })
-  const [loginError, setLoginError] = useState('')
-  const [form, setForm] = useState(defaultForm)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [result, setResult] = useState(null)
-  const [auditDetail, setAuditDetail] = useState(null)
-  const [audits, setAudits] = useState([])
+  return (
+    <Routes>
+      {/* ==================================================
+          LANDING
+      ================================================== */}
 
-  useEffect(() => {
-    if (view !== 'dashboard') return
+      <Route
+        path="/"
+        element={<Landing />}
+      />
 
-    listAudits()
-      .then((data) => setAudits(data))
-      .catch(() => setAudits([]))
-  }, [view, result])
+      {/* ==================================================
+          LOGIN
+      ================================================== */}
 
-  const handleLogin = (event) => {
-    event.preventDefault()
-    if (loginForm.email === 'admin@smartroad.local' && loginForm.password === 'smartroad123') {
-      setLoginError('')
-      setView('dashboard')
-      return
-    }
-    setLoginError('Use the demo credentials shown below the form.')
-  }
+      <Route
+        path="/login"
+        element={<Login />}
+      />
 
-  const handleLogout = () => {
-    setView('hero')
-    setLoginForm({ email: '', password: '' })
-    setResult(null)
-    setAuditDetail(null)
-  }
+      {/* ==================================================
+          DASHBOARD
+      ================================================== */}
 
-  const handleChange = (event) => {
-    const { name, value } = event.target
-    setForm((current) => ({
-      ...current,
-      [name]: name === 'radius_m' || name === 'center_lat' || name === 'center_lng' ? Number(value) : value,
-    }))
-  }
+      <Route
+        path="/dashboard"
+        element={<Dashboard />}
+      />
 
-  const handleLoginChange = (field, value) => {
-    setLoginForm((current) => ({ ...current, [field]: value }))
-  }
+      {/* ==================================================
+          CREATE AUDIT
+      ================================================== */}
 
-  const loadAuditDetail = async (auditId) => {
-    setAuditDetail(await getAudit(auditId))
-  }
+      <Route
+        path="/audits/create"
+        element={<CreateAudit />}
+      />
 
-  const handleSubmit = async (event) => {
-    event.preventDefault()
-    setLoading(true)
-    setError('')
-    setResult(null)
-    setAuditDetail(null)
+      {/* ==================================================
+          AUDIT HISTORY
+      ================================================== */}
 
-    try {
-      const data = await createAudit(form)
-      setResult(data)
-      await loadAuditDetail(data.id)
-    } catch (err) {
-      setError(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+      <Route
+        path="/audits"
+        element={<AuditHistory />}
+      />
 
-  if (view === 'hero') {
-    return <TerminalLanding onOpenLogin={() => setView('login')} />
-  }
+      {/* ==================================================
+          AUDIT DETAILS
+      ================================================== */}
 
-  if (view === 'login') {
-    return <LoginPage loginForm={loginForm} loginError={loginError} onChange={handleLoginChange} onSubmit={handleLogin} onBack={() => setView('hero')} />
-  }
+      <Route
+        path="/audits/:auditId"
+        element={<AuditDetails />}
+      />
 
-  return <Dashboard audits={audits} form={form} result={result} auditDetail={auditDetail} error={error} loading={loading} onLogout={handleLogout} onChange={handleChange} onSubmit={handleSubmit} onNewAudit={() => document.getElementById('create-audit')?.scrollIntoView({ behavior: 'smooth' })} />
+      {/* ==================================================
+          POTHOLE SCANNER
+      ================================================== */}
+
+      <Route
+        path="/scanner"
+        element={<PotholeScanPage />}
+      />
+
+      <Route
+        path="/potholes/scan"
+        element={<PotholeScanPage />}
+      />
+
+      {/* ==================================================
+          FALLBACK
+      ================================================== */}
+
+      <Route
+        path="*"
+        element={
+          <Navigate
+            to="/"
+            replace
+          />
+        }
+      />
+    </Routes>
+  );
 }
 
-export default App
+export default App;

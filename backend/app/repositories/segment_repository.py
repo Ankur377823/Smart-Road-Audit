@@ -38,6 +38,17 @@ class SegmentRepository:
 
         return segments
 
+    def delete_by_audit_id(self, audit_id: int) -> None:
+        """Delete generated segments before rebuilding an audit."""
+        statement = select(Segment).where(
+            Segment.audit_id == audit_id
+        )
+
+        for segment in self.db.scalars(statement).all():
+            self.db.delete(segment)
+
+        self.db.commit()
+
     # -------------------------
     # Read
     # -------------------------

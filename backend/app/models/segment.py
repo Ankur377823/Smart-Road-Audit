@@ -71,6 +71,11 @@ class Segment(Base):
         nullable=True,
     )
 
+    max_speed: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
     traffic_level: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,

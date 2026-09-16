@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import inspect, text
 
-from app.api.routes import audits, checklist, locations, segments
+from app.api.routes import audits, checklist, locations, segments,roads
 from app.core.config import settings
 from app.db.database import Base, engine
 
@@ -16,6 +17,17 @@ from app.api.router import router as api_router
 # -------------------------
 
 Base.metadata.create_all(bind=engine)
+
+# Keep existing local databases compatible when new report fields are added.
+with engine.begin() as connection:
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns("segments")
+    }
+    if "max_speed" not in columns:
+        connection.execute(
+            text("ALTER TABLE segments ADD COLUMN max_speed FLOAT")
+        )
 
 
 # -------------------------
@@ -55,6 +67,7 @@ app.add_middleware(
 # -------------------------
 
 app.include_router(api_router)
+app.include_router(api_router, prefix="/api")
 
 
 # -------------------------
