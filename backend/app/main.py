@@ -8,6 +8,8 @@ from app.db.database import Base, engine
 # Import all models so SQLAlchemy knows about them
 from app.models import Audit, ChecklistItem, Segment
 
+from app.api.router import router as api_router
+
 
 # -------------------------
 # Database initialization
@@ -52,10 +54,7 @@ app.add_middleware(
 # Register API routers
 # -------------------------
 
-app.include_router(locations.router)
-app.include_router(audits.router)
-app.include_router(segments.router)
-app.include_router(checklist.router)
+app.include_router(api_router)
 
 
 # -------------------------
