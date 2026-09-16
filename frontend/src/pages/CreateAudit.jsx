@@ -94,6 +94,14 @@ function CreateAudit() {
         <div className="mx-auto max-w-7xl">
           {/* Header */}
           <div className="mb-7">
+            <button
+              type="button"
+              onClick={() => navigate("/dashboard")}
+              className="mb-4 inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
+            >
+              Back to Dashboard
+            </button>
+
             <div className="flex items-center gap-2 text-sm text-slate-500">
               <span>SmartRoad Audit</span>
               <span>/</span>
@@ -227,7 +235,7 @@ function CreateAudit() {
                     id="radius"
                     type="range"
                     min="100"
-                    max="10000"
+                    max="1000"
                     step="100"
                     value={radius}
                     onChange={(event) => setRadius(Number(event.target.value))}
@@ -236,7 +244,7 @@ function CreateAudit() {
 
                   <div className="mt-2 flex justify-between text-[11px] text-slate-400">
                     <span>100 m</span>
-                    <span>10 km</span>
+                    <span>1 km</span>
                   </div>
                 </div>
 
@@ -274,10 +282,6 @@ function CreateAudit() {
                           Residential roads
                         </p>
                       </div>
-
-                      {roadClass === "local" && (
-                        <span className="text-sm text-slate-900">✓</span>
-                      )}
                     </button>
 
                     {/* Collector */}
@@ -299,10 +303,6 @@ function CreateAudit() {
                           Connecting roads
                         </p>
                       </div>
-
-                      {roadClass === "collector" && (
-                        <span className="text-sm text-slate-900">✓</span>
-                      )}
                     </button>
 
                     {/* Arterial */}
@@ -324,10 +324,6 @@ function CreateAudit() {
                           Major traffic roads
                         </p>
                       </div>
-
-                      {roadClass === "arterial" && (
-                        <span className="text-sm text-slate-900">✓</span>
-                      )}
                     </button>
                   </div>
                 </div>

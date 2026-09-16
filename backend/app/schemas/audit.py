@@ -38,7 +38,7 @@ class AuditCreate(BaseModel):
     radius_m: int = Field(
         default=100,
         ge=100,
-        le=10000,
+        le=1000,
         description="Audit radius in metres",
     )
 

@@ -326,9 +326,9 @@ function AuditDetails() {
           <button
             type="button"
             onClick={() => navigate("/dashboard")}
-            className="mb-5 text-sm font-medium text-slate-500 transition hover:text-slate-900"
+            className="mb-5 inline-flex rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-400 hover:bg-slate-50"
           >
-            ← Back to Dashboard
+            Back to Dashboard
           </button>
 
           <div className="flex flex-col justify-between gap-4 md:flex-row md:items-end">
@@ -493,8 +493,8 @@ function AuditDetails() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-850">
+            <div className="w-full overflow-hidden">
+              <table className="w-full table-fixed">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-left">
                     <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -624,8 +624,8 @@ function AuditDetails() {
             </p>
             <p className="mt-2 text-sm text-amber-700">
               Road class is the category selected when this audit was created.
-              The operating speed shown below is a deterministic demo estimate,
-              not a measured speed limit.
+              Operating speed is derived from route data when available; it is
+              not a legal speed limit.
             </p>
             <p className="mt-2 text-sm text-slate-500">
               Max speed is shown as report data only. It is not included in the

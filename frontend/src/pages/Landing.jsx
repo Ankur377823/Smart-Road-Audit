@@ -21,62 +21,45 @@ function Landing() {
           duration: 0.7,
         })
         .from(
-          ".terminal-log-line",
-          {
-            x: -24,
-            opacity: 0,
-            stagger: 0.16,
-            duration: 0.55,
-          },
-          "-=0.2"
-        )
-        .from(
-          ".terminal-title",
-          {
-            scale: 0.94,
-            opacity: 0,
-            duration: 0.9,
-          },
-          "-=0.1"
-        )
-        .from(
-          ".terminal-title strong",
-          {
-            letterSpacing: "0.5em",
-            opacity: 0,
-            duration: 0.7,
-          },
-          "-=0.45"
-        )
-        .from(
           ".terminal-grid",
           {
             opacity: 0,
             x: 35,
             duration: 1.1,
           },
-          "-=0.8"
+          "-=0.8",
         )
         .from(
-          ".terminal-start, .terminal-status",
+          ".landing-copy",
+          {
+            y: 24,
+            opacity: 0,
+            duration: 0.7,
+          },
+          "-=0.35",
+        )
+        .from(
+          ".terminal-signin, .landing-action",
           {
             y: 12,
             opacity: 0,
+            stagger: 0.12,
             duration: 0.5,
           },
-          "-=0.55"
+          "-=0.55",
         );
 
-      gsap.to(".status-spinner", {
-        rotate: 360,
-        duration: 1.8,
+      gsap.to(".terminal-grid", {
+        x: -18,
+        duration: 8,
         repeat: -1,
-        ease: "none",
+        yoyo: true,
+        ease: "sine.inOut",
       });
 
-      gsap.to(".terminal-line", {
-        opacity: 0.55,
-        duration: 1.4,
+      gsap.to(".terminal-signin", {
+        boxShadow: "0 8px 18px rgba(231, 111, 81, 0.24)",
+        duration: 1.8,
         repeat: -1,
         yoyo: true,
         ease: "sine.inOut",
@@ -96,38 +79,25 @@ function Landing() {
       className="terminal-hero min-h-screen overflow-hidden text-slate-100"
     >
       {/* Background grid */}
-      <div
-        className="terminal-grid"
-        aria-hidden="true"
-      />
+      <div className="terminal-grid" aria-hidden="true" />
 
       {/* =====================================================
           NAVBAR
       ===================================================== */}
 
       <nav className="terminal-nav">
-
         <button
           type="button"
           onClick={() => navigate("/")}
           className="terminal-brand"
           aria-label="SmartRoad home"
         >
-          <span className="terminal-mark">
-            ◢
-          </span>
-
           SmartRoad
         </button>
 
-        <button
-          type="button"
-          onClick={openLogin}
-          className="terminal-signin"
-        >
-          SIGN IN <span>↗</span>
+        <button type="button" onClick={openLogin} className="terminal-signin">
+          Sign up
         </button>
-
       </nav>
 
       {/* =====================================================
@@ -135,77 +105,18 @@ function Landing() {
       ===================================================== */}
 
       <section className="terminal-content">
-
-        <div className="terminal-log">
-
-          <div className="terminal-log-line">
-            09:16:21{" "}
-            <b>
-              INCOMING AUDIT REQUEST DETECTED
-            </b>{" "}
-            ...
-          </div>
-
-          <div className="terminal-log-line">
-            09:16:24{" "}
-            <b>
-              SAFETY WORKSPACE WAKING UP
-            </b>{" "}
-            ...
-          </div>
-
+        <div className="landing-copy">
+          <p className="landing-kicker">Road safety analysis workspace</p>
+          <h1>Understand the road before you make the decision.</h1>
+          <p>
+            Create focused audits, review segment-level risk factors, and turn
+            location data into practical field action.
+          </p>
+          <button type="button" onClick={openLogin} className="landing-action">
+            Start an audit
+          </button>
         </div>
-
-        <button
-          type="button"
-          onClick={openLogin}
-          className="terminal-title"
-          aria-label="Open SmartRoad Audit workspace"
-        >
-          <span>
-            ╔══════════════════════════════╗
-          </span>
-
-          <strong>
-            SMARTROAD
-            <br />
-            AUDIT
-          </strong>
-
-          <span>
-            ╚══════════════════════════════╝
-          </span>
-        </button>
-
       </section>
-
-      {/* =====================================================
-          CTA
-      ===================================================== */}
-
-      <button
-        type="button"
-        onClick={openLogin}
-        className="terminal-start"
-      >
-        START AUDITING ON SMARTROAD TODAY{" "}
-        <span>→</span>
-      </button>
-
-      {/* =====================================================
-          STATUS
-      ===================================================== */}
-
-      <div className="terminal-status">
-        <span className="status-spinner">
-          ◔
-        </span>
-
-        APPLICATION READY
-      </div>
-
-      <div className="terminal-line" />
-
     </main>
   );
 }

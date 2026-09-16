@@ -17,6 +17,8 @@ class SegmentedRoad:
     geometry: str | None = None
     operating_speed_kmh: float | None = None
     max_speed_kmh: float | None = None
+    traffic_level: str | None = None
+    pedestrian_activity: str | None = None
 
 
 class RoadSegmentationService:
@@ -120,6 +122,8 @@ class RoadSegmentationService:
             "geometry": road.geometry,
             "operating_speed_kmh": road.operating_speed_kmh,
             "max_speed_kmh": road.max_speed_kmh,
+            "traffic_level": road.traffic_level,
+            "pedestrian_activity": road.pedestrian_activity,
         }
 
     @staticmethod
@@ -142,6 +146,8 @@ class RoadSegmentationService:
             geometry=segment.geometry,
             operating_speed_kmh=segment.operating_speed_kmh,
             max_speed_kmh=segment.max_speed_kmh,
+            traffic_level=segment.traffic_level,
+            pedestrian_activity=segment.pedestrian_activity,
         )
 
     @classmethod

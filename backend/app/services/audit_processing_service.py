@@ -68,6 +68,9 @@ class AuditProcessingService:
     # Number of route probes around the audit center.
     ROUTE_PROBES = 8
 
+    # Maximum number of segments saved for one audit.
+    MAX_SEGMENTS_PER_AUDIT = 10
+
     def __init__(self, db: Session):
         self.db = db
 
@@ -202,7 +205,7 @@ class AuditProcessingService:
                 self.segmentation_service.segment_roads(
                     roads
                 )
-            )
+            )[: self.MAX_SEGMENTS_PER_AUDIT]
 
             # --------------------------------------------------
             # 7. Convert segments to database models
@@ -217,6 +220,8 @@ class AuditProcessingService:
                     operating_speed_kmh=(
                         road.operating_speed_kmh
                     ),
+                    traffic_level=road.traffic_level,
+                    pedestrian_activity=road.pedestrian_activity,
                 )
                 risk = self.risk_scoring_service.calculate_risk(
                     metrics
@@ -235,7 +240,7 @@ class AuditProcessingService:
                     max_speed=(
                         road.max_speed_kmh
                         if road.max_speed_kmh is not None
-                        else self._demo_max_speed(road.road_class)
+                        else None
                     ),
                     traffic_level=metrics.traffic_level,
                     pedestrian_activity=metrics.pedestrian_activity,
@@ -293,50 +298,21 @@ class AuditProcessingService:
         road_class: str,
         index: int,
         operating_speed_kmh: float | None = None,
+        traffic_level: str | None = None,
+        pedestrian_activity: str | None = None,
     ) -> SegmentMetrics:
-        """Build metrics from route data with a demo fallback."""
-        demo_profiles = {
-            "local": [
-                (30.0, "low", "low"),
-                (35.0, "low", "medium"),
-                (40.0, "medium", "medium"),
-            ],
-            "collector": [
-                (45.0, "medium", "medium"),
-                (50.0, "medium", "high"),
-                (55.0, "high", "medium"),
-            ],
-            "arterial": [
-                (55.0, "medium", "medium"),
-                (60.0, "high", "medium"),
-                (65.0, "high", "high"),
-            ],
-        }
-        demo_profile = demo_profiles.get(
-            road_class,
-            demo_profiles["collector"],
-        )[index % 3]
-
+        """Build metrics only from values supplied by providers."""
         return SegmentMetrics(
-            gradient=round(1.5 + (index % 3) * 1.25, 2),
-            curve_radius=350.0 - (index % 3) * 60.0,
+            gradient=None,
+            curve_radius=None,
             operating_speed=(
                 round(operating_speed_kmh, 2)
                 if operating_speed_kmh is not None
-                else demo_profile[0]
+                else None
             ),
-            traffic_level=demo_profile[1],
-            pedestrian_activity=demo_profile[2],
+            traffic_level=traffic_level,
+            pedestrian_activity=pedestrian_activity,
         )
-
-    @staticmethod
-    def _demo_max_speed(road_class: str) -> float:
-        """Return the demo reference maximum speed for reporting only."""
-        return {
-            "local": 40.0,
-            "collector": 60.0,
-            "arterial": 80.0,
-        }.get(road_class, 60.0)
 
     # ==========================================================
     # ROAD DATA
@@ -412,6 +388,9 @@ class AuditProcessingService:
                         operating_speed_kmh=(
                             road.operating_speed_kmh
                         ),
+                        max_speed_kmh=road.max_speed_kmh,
+                        traffic_level=road.traffic_level,
+                        pedestrian_activity=road.pedestrian_activity,
                     )
                 )
 
