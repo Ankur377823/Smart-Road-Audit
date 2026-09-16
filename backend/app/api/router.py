@@ -1,11 +1,8 @@
-from app.api import audits, checklist, locations, segments
+from app.api.routes import audits, checklist, locations, segments
 
 from fastapi import APIRouter
 
-router = APIRouter(
-    prefix="/api",
-    tags=["api"],
-)
+router = APIRouter()
 
 router.include_router(locations.router, prefix="/locations", tags=["locations"])
 router.include_router(audits.router, prefix="/audits", tags=["audits"])
