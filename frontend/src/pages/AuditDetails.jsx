@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { getAudit, getAuditChecklist, getAuditSegments } from "../services/api";
+import PotholeReportCard from "../components/pothole/PotholeReportCard";
 
 function AuditDetails() {
   const { auditId } = useParams();
@@ -465,6 +466,19 @@ function AuditDetails() {
               ))}
             </div>
           </div>
+        </div>
+
+        {/* ==================================================
+            POTHOLE & SURFACE DISTRESS SCREENING
+        ================================================== */}
+
+        <div className="mb-6">
+          <PotholeReportCard
+            auditId={auditId}
+            onOpenScanner={(id) =>
+              navigate(`/scanner?auditId=${id || auditId}`)
+            }
+          />
         </div>
 
         {/* ==================================================
