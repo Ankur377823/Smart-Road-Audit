@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import audits, checklist, locations, segments
+from app.api.routes import audits, checklist, locations, segments,roads
 from app.core.config import settings
 from app.db.database import Base, engine
 

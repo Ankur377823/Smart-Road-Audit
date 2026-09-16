@@ -4,24 +4,38 @@ from app.models.audit import Audit
 from app.models.segment import Segment
 from app.repositories.audit_repository import AuditRepository
 from app.repositories.segment_repository import SegmentRepository
-from app.services.segmentation import SegmentationService
+from app.services.road_segmentation_service import (
+    RoadSegmentationService,
+)
 
 
 class AuditWorkflowService:
     """
-    Coordinates the complete audit-processing workflow.
+    Coordinates the processing stages of a SmartRoad Audit.
 
-    This service connects:
+    Current workflow:
+
         Audit
-        ↓
-        Road data
-        ↓
-        Segmentation
-        ↓
-        Database
+          ↓
+        Normalized road data
+          ↓
+        Road segmentation
+          ↓
+        Segment database records
 
-    More processing stages such as metrics, risk scoring,
-    and checklist generation will be added later.
+    Future stages:
+
+        Segment
+          ↓
+        Elevation
+        Traffic
+        Land use
+          ↓
+        Metrics
+          ↓
+        Risk scoring
+          ↓
+        Checklist
     """
 
     def __init__(self, db: Session):
@@ -30,18 +44,50 @@ class AuditWorkflowService:
         self.audit_repository = AuditRepository(db)
         self.segment_repository = SegmentRepository(db)
 
-        self.segmentation_service = SegmentationService()
+        self.road_segmentation_service = (
+            RoadSegmentationService()
+        )
 
-    def get_audit(self, audit_id: int) -> Audit | None:
-        return self.audit_repository.get_by_id(audit_id)
+    # --------------------------------------------------
+    # Audit
+    # --------------------------------------------------
+
+    def get_audit(
+        self,
+        audit_id: int,
+    ) -> Audit | None:
+        """
+        Retrieve an audit from the database.
+        """
+
+        return self.audit_repository.get_by_id(
+            audit_id
+        )
+
+    # --------------------------------------------------
+    # Create segments
+    # --------------------------------------------------
 
     def create_segments(
         self,
         audit_id: int,
-        roads: list[dict],
+        roads: list,
     ) -> list[Segment]:
+        """
+        Convert normalized road data into Segment
+        database models and save them.
 
-        audit = self.audit_repository.get_by_id(audit_id)
+        The road segmentation logic is delegated to
+        RoadSegmentationService.
+        """
+
+        # --------------------------------------------------
+        # 1. Get audit
+        # --------------------------------------------------
+
+        audit = self.audit_repository.get_by_id(
+            audit_id
+        )
 
         if audit is None:
             raise ValueError(
@@ -52,22 +98,25 @@ class AuditWorkflowService:
             return []
 
         # --------------------------------------------------
-        # Convert road data into segments
+        # 2. Segment roads
         # --------------------------------------------------
 
-        segment_data = (
-            self.segmentation_service.segment_roads(
+        segmented_roads = (
+            self.road_segmentation_service.segment_roads(
                 roads
             )
         )
 
+        if not segmented_roads:
+            return []
+
         # --------------------------------------------------
-        # Convert segment data into database models
+        # 3. Convert to database models
         # --------------------------------------------------
 
         segments: list[Segment] = []
 
-        for data in segment_data:
+        for data in segmented_roads:
 
             segment = Segment(
                 audit_id=audit.id,
@@ -81,33 +130,35 @@ class AuditWorkflowService:
             segments.append(segment)
 
         # --------------------------------------------------
-        # Save segments
+        # 4. Save segments
         # --------------------------------------------------
 
         return self.segment_repository.create_many(
             segments
         )
 
+    # --------------------------------------------------
+    # Process roads
+    # --------------------------------------------------
+
     def process_roads(
         self,
         audit_id: int,
-        roads: list[dict],
+        roads: list,
     ) -> list[Segment]:
-
         """
-        Main entry point for processing road data.
+        Main workflow entry point for normalized road data.
 
-        Currently:
+        Current:
+
             Road data
                 ↓
             Segmentation
                 ↓
             PostgreSQL
 
-        Later this method will also run:
-            Metrics
-            Risk scoring
-            Checklist generation
+        The additional analysis stages will be added
+        without changing the road acquisition layer.
         """
 
         return self.create_segments(

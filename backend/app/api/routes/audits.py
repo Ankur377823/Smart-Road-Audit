@@ -2,7 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.schemas.audit import AuditCreate, AuditResponse, AuditSummary
+from app.schemas.audit import (
+    AuditCreate,
+    AuditResponse,
+    AuditSummary,
+)
+from app.services.audit_processing_service import (
+    AuditProcessingService,
+)
 from app.services.audit_service import AuditService
 
 
@@ -11,6 +18,10 @@ router = APIRouter(
     tags=["Audits"],
 )
 
+
+# ==========================================================
+# CREATE AUDIT
+# ==========================================================
 
 @router.post(
     "",
@@ -23,12 +34,14 @@ def create_audit(
 ):
     """
     Create a new road safety audit.
+
+    The audit is initially created with status='pending'.
     """
 
-    service = AuditService(db)
-
     try:
-        audit = service.create_audit(data)
+        audit = AuditService(
+            db
+        ).create_audit(data)
 
         return audit
 
@@ -39,6 +52,10 @@ def create_audit(
         ) from exc
 
 
+# ==========================================================
+# LIST AUDITS
+# ==========================================================
+
 @router.get(
     "",
     response_model=list[AuditSummary],
@@ -47,13 +64,17 @@ def get_audits(
     db: Session = Depends(get_db),
 ):
     """
-    Get all audits for the audit history.
+    Return all previously created audits.
     """
 
-    service = AuditService(db)
+    return AuditService(
+        db
+    ).get_all_audits()
 
-    return service.get_all_audits()
 
+# ==========================================================
+# GET SINGLE AUDIT
+# ==========================================================
 
 @router.get(
     "/{audit_id}",
@@ -64,12 +85,14 @@ def get_audit(
     db: Session = Depends(get_db),
 ):
     """
-    Get a single audit by ID.
+    Return one audit by ID.
     """
 
-    service = AuditService(db)
-
-    audit = service.get_audit(audit_id)
+    audit = AuditService(
+        db
+    ).get_audit(
+        audit_id
+    )
 
     if audit is None:
         raise HTTPException(
@@ -79,6 +102,68 @@ def get_audit(
 
     return audit
 
+
+# ==========================================================
+# PROCESS AUDIT
+# ==========================================================
+
+@router.post(
+    "/{audit_id}/process",
+)
+async def process_audit(
+    audit_id: int,
+    db: Session = Depends(get_db),
+):
+    """
+    Start processing an existing audit.
+
+    Current processing pipeline:
+
+        Audit
+          ↓
+        Road snapping
+          ↓
+        Google Routes API
+          ↓
+        Road sections
+          ↓
+        Segmentation
+          ↓
+        PostgreSQL
+    """
+
+    try:
+
+        result = await AuditProcessingService(
+            db
+        ).process_audit(
+            audit_id=audit_id,
+        )
+
+        return {
+            "message": "Audit processing completed.",
+            "audit_id": result.audit_id,
+            "road_count": result.road_count,
+            "segment_count": result.segment_count,
+            "status": result.status,
+        }
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Audit processing failed.",
+        )
+
+
+# ==========================================================
+# UPDATE AUDIT STATUS
+# ==========================================================
 
 @router.patch(
     "/{audit_id}/status",
@@ -90,12 +175,12 @@ def update_audit_status(
     db: Session = Depends(get_db),
 ):
     """
-    Update the status of an audit.
+    Update the processing status of an audit.
     """
 
-    service = AuditService(db)
-
-    audit = service.update_status(
+    audit = AuditService(
+        db
+    ).update_status(
         audit_id=audit_id,
         status=status_value,
     )
@@ -109,6 +194,10 @@ def update_audit_status(
     return audit
 
 
+# ==========================================================
+# UPDATE COMPLIANCE SCORE
+# ==========================================================
+
 @router.patch(
     "/{audit_id}/score",
     response_model=AuditResponse,
@@ -119,13 +208,16 @@ def update_compliance_score(
     db: Session = Depends(get_db),
 ):
     """
-    Update the compliance score of an audit.
+    Update the final compliance score.
+
+    Score must be between 0 and 100.
     """
 
-    service = AuditService(db)
-
     try:
-        audit = service.update_compliance_score(
+
+        audit = AuditService(
+            db
+        ).update_compliance_score(
             audit_id=audit_id,
             compliance_score=compliance_score,
         )
@@ -145,6 +237,10 @@ def update_compliance_score(
     return audit
 
 
+# ==========================================================
+# DELETE AUDIT
+# ==========================================================
+
 @router.delete(
     "/{audit_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -154,12 +250,14 @@ def delete_audit(
     db: Session = Depends(get_db),
 ):
     """
-    Delete an audit.
+    Delete an audit and its related segments/checklist items.
     """
 
-    service = AuditService(db)
-
-    deleted = service.delete_audit(audit_id)
+    deleted = AuditService(
+        db
+    ).delete_audit(
+        audit_id
+    )
 
     if not deleted:
         raise HTTPException(
