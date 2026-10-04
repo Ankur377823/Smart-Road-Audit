@@ -140,6 +140,13 @@ class PotholeDetector:
         else:
             img_np = np.zeros((height, width, 3), dtype=np.uint8)
 
+        # Check if the overall frame is facing a person / indoor subject
+        if img_np.size > 0:
+            crop_center = img_np[int(height * 0.2):int(height * 0.8), int(width * 0.2):int(width * 0.8)]
+            crop_bgr = crop_center[:, :, ::-1] if (len(crop_center.shape) == 3 and crop_center.shape[2] == 3) else crop_center
+            if _is_human_skin(crop_bgr):
+                human_detected = True
+
         for r in results:
             boxes = r.boxes
             masks = r.masks
