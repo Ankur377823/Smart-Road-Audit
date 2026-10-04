@@ -1064,7 +1064,7 @@ function LocationPicker({
          */}
         <div
           ref={mapRef}
-          className="h-[480px] w-full"
+          className="h-[340px] sm:h-[480px] w-full"
         />
 
         {!googleLoaded &&

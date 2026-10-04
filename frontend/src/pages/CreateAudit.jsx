@@ -90,7 +90,7 @@ function CreateAudit() {
     <div className="min-h-screen bg-slate-50">
       <Navbar />
 
-      <main className="px-5 py-8 lg:px-8">
+      <main className="px-3 py-6 sm:px-5 sm:py-8 lg:px-8">
         <div className="mx-auto max-w-7xl">
           {/* Header */}
           <div className="mb-7">

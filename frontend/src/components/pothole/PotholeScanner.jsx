@@ -14,7 +14,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const [facingMode, setFacingMode] = useState('environment')
 
   // Detection Sensitivity / Confidence Filter
-  const [confThreshold, setConfThreshold] = useState(0.70)
+  const [confThreshold, setConfThreshold] = useState(0.35)
 
   // Live Telemetry & GPS
   const [gps, setGps] = useState({ lat: null, lng: null, speedKmh: null, accuracy: null })
@@ -332,7 +332,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           <h1 className="mt-1 text-2xl font-bold text-white flex items-center gap-3">
             <span>YOLO Live Road Scanner</span>
             <span className="rounded-full bg-emerald-500/10 px-3 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
-              OpenCV Depth & Risk Active
+              Real-Time Pothole AI Active
             </span>
           </h1>
         </div>
@@ -343,7 +343,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
             <span>Confidence Filter:</span>
             <input
               type="range"
-              min="0.40"
+              min="0.15"
               max="0.85"
               step="0.05"
               value={confThreshold}
@@ -403,7 +403,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
             </div>
             <h3 className="text-lg font-semibold text-white">Road Camera Standby</h3>
             <p className="mt-2 text-sm text-slate-400 leading-relaxed">
-              {cameraError || 'Click below to launch your camera and start scanning road potholes with real-time OpenCV depth estimation.'}
+              {cameraError || 'Click below to launch your camera and start detecting road potholes in real time.'}
             </p>
 
             <div className="mt-6 flex items-center justify-center gap-3">

@@ -32,7 +32,39 @@
 @media (max-width: 768px) {
   .scanner-viewfinder-card {
     aspect-ratio: 4 / 3;
-    min-height: 380px;
+    min-height: 360px;
+  }
+}
+
+@media (max-width: 640px) {
+  .pothole-scanner-root {
+    gap: 1rem;
+  }
+  .scanner-viewfinder-card {
+    aspect-ratio: 3 / 4;
+    min-height: 320px;
+    border-radius: 1rem;
+  }
+  .scanner-hud-top {
+    top: 0.6rem;
+    left: 0.6rem;
+    right: 0.6rem;
+    gap: 0.4rem;
+  }
+  .scanner-hud-bottom {
+    bottom: 0.6rem;
+    left: 0.6rem;
+    right: 0.6rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+  .hud-badge {
+    padding: 0.25rem 0.6rem;
+    font-size: 0.72rem;
+  }
+  .scanner-ctrl-btn {
+    padding: 0.45rem 0.85rem;
+    font-size: 0.8rem;
   }
 }
 

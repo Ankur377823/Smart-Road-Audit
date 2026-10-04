@@ -82,12 +82,9 @@ function PotholeCanvasOverlay({ detections = [], frameWidth = 640, frameHeight =
         ctx.lineTo(x2 - cornerSize, y2)
         ctx.stroke()
 
-        // Draw Label Chip with OpenCV Depth and Risk
-        const depthText = det.depth_cm ? ` • ${det.depth_cm}cm` : ''
-        const sevStr = (severity || 'moderate').toUpperCase()
-        const riskText = det.risk_score ? ` [RISK ${det.risk_score}]` : ` [${sevStr}]`
-        const labelText = `POTHOLE ${(Number(confidence || 0) * 100).toFixed(0)}%${depthText}${riskText}`
-        ctx.font = 'bold 11px Inter, system-ui, sans-serif'
+        // Draw Real-time Pothole Detection Label Chip
+        const labelText = `POTHOLE ${(Number(confidence || 0) * 100).toFixed(0)}%`
+        ctx.font = 'bold 12px Inter, system-ui, sans-serif'
         const textWidth = ctx.measureText(labelText).width
         const padding = 6
 

@@ -1,7 +1,13 @@
-const RAW_API_BASE_URL = (import.meta.env.VITE_API_BASE_URL !== undefined ? import.meta.env.VITE_API_BASE_URL : (typeof window !== 'undefined' ? '' : 'http://127.0.0.1:8000')).replace(/\/$/, '')
-const API_BASE_URL = RAW_API_BASE_URL ? (RAW_API_BASE_URL.endsWith('/api') ? RAW_API_BASE_URL : `${RAW_API_BASE_URL}/api`) : '/api'
+const RAW_API_BASE_URL = import.meta.env.VITE_API_BASE_URL
+  ? import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')
+  : (typeof window !== 'undefined' && (window.location.port === '5173' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port !== '8000' && window.location.port !== '10000'
+      ? 'http://127.0.0.1:8000'
+      : '')
+const API_BASE_URL = RAW_API_BASE_URL
+  ? (RAW_API_BASE_URL.endsWith('/api') ? RAW_API_BASE_URL : `${RAW_API_BASE_URL}/api`)
+  : '/api'
 
-export async function detectPotholes({ imageBase64, confThreshold = 0.70, latitude = null, longitude = null, speedKmh = null, auditId = null }) {
+export async function detectPotholes({ imageBase64, confThreshold = 0.35, latitude = null, longitude = null, speedKmh = null, auditId = null }) {
   const response = await fetch(`${API_BASE_URL}/potholes/detect`, {
     method: 'POST',
     headers: {
