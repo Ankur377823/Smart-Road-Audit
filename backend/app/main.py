@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -71,7 +72,7 @@ app.include_router(api_router, prefix='/api')
 
 
 # -------------------------
-# Health check
+# Health check (handles GET and HEAD for Render)
 # -------------------------
 
 @app.api_route('/health', methods=['GET', 'HEAD'])
@@ -85,11 +86,23 @@ def health_check():
 # Frontend Static / SPA Serving
 # -------------------------
 
-FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'frontend_dist')
-if not os.path.isdir(FRONTEND_DIST):
-    FRONTEND_DIST = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'frontend', 'dist')
+candidate_paths = [
+    Path('/app/frontend_dist'),
+    Path(__file__).resolve().parent.parent / 'frontend_dist',
+    Path(__file__).resolve().parent.parent.parent / 'frontend' / 'dist',
+    Path(__file__).resolve().parent.parent / 'frontend' / 'dist',
+    Path('frontend_dist'),
+    Path('../frontend/dist'),
+]
 
-if os.path.isdir(FRONTEND_DIST):
+FRONTEND_DIST = None
+for p in candidate_paths:
+    if p.is_dir() and (p / 'index.html').is_file():
+        FRONTEND_DIST = str(p.resolve())
+        print(f'[Frontend] Successfully located compiled React UI at: {FRONTEND_DIST}')
+        break
+
+if FRONTEND_DIST:
     assets_dir = os.path.join(FRONTEND_DIST, 'assets')
     if os.path.isdir(assets_dir):
         app.mount('/assets', StaticFiles(directory=assets_dir), name='assets')
@@ -99,22 +112,26 @@ if os.path.isdir(FRONTEND_DIST):
         if request.method == 'HEAD':
             return Response(status_code=200)
         index_file = os.path.join(FRONTEND_DIST, 'index.html')
-        if os.path.isfile(index_file):
-            return FileResponse(index_file)
-        return {'name': settings.APP_NAME, 'version': '1.0.0', 'status': 'running'}
+        return FileResponse(index_file)
 
     @app.get('/{full_path:path}')
     def serve_spa(full_path: str):
-        if full_path.startswith('api/') or full_path == 'api' or full_path.startswith('docs') or full_path.startswith('openapi'):
+        if (
+            full_path.startswith('api/')
+            or full_path == 'api'
+            or full_path.startswith('docs')
+            or full_path.startswith('openapi')
+            or full_path.startswith('health')
+        ):
             raise HTTPException(status_code=404, detail='Not found')
         file_path = os.path.join(FRONTEND_DIST, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         index_file = os.path.join(FRONTEND_DIST, 'index.html')
-        if os.path.isfile(index_file):
-            return FileResponse(index_file)
-        raise HTTPException(status_code=404, detail='Not found')
+        return FileResponse(index_file)
 else:
+    print('[Frontend] No compiled React UI found; running in API-only mode')
+
     @app.api_route('/', methods=['GET', 'HEAD'])
     def root():
         return {

@@ -10,7 +10,8 @@ RUN npm run build
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    YOLO_CONFIG_DIR=/tmp/Ultralytics
 
 WORKDIR /app
 
