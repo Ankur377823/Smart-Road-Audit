@@ -27,6 +27,8 @@ services:
           property: connectionString
       - key: APP_NAME
         value: SmartRoad Audit API
+      - key: PORT
+        value: "8000"
       - key: DEMO_MODE
         value: "false"
       - key: CORS_ORIGINS

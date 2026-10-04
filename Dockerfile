@@ -23,5 +23,5 @@ COPY backend/app ./app
 # Expose backend port
 EXPOSE 8000
 
-# Run FastAPI server with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run FastAPI server with uvicorn (binds to Render's dynamic PORT or default 8000)
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
