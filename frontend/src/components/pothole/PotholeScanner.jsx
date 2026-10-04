@@ -23,6 +23,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   // Detections & Overlays
   const [currentDetections, setCurrentDetections] = useState([])
   const [modelMode, setModelMode] = useState('')
+  const [humanWarning, setHumanWarning] = useState(null)
   const [videoDims, setVideoDims] = useState({ width: 640, height: 480 })
 
   // Session Recorded Potholes (with OpenCV Depth and Risk)
@@ -222,6 +223,11 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
         setCurrentDetections(Array.isArray(response?.detections) ? response.detections : [])
         setModelMode(response?.model_mode || '')
+        if (response?.human_detected) {
+          setHumanWarning(response?.warning_message || 'Human / non-road subject filtered')
+        } else {
+          setHumanWarning(null)
+        }
 
         // Calculate FPS
         frameCount++
@@ -424,6 +430,11 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
               {modelMode && (
                 <span className="hud-badge text-[11px] text-slate-300">
                   Model: <strong className="text-emerald-400">{modelMode.split(' ')[0]}</strong>
+                </span>
+              )}
+              {humanWarning && (
+                <span className="hud-badge text-[11px] bg-amber-500/20 text-amber-300 border-amber-500/30">
+                  🛡️ {humanWarning}
                 </span>
               )}
             </div>

@@ -27,6 +27,8 @@ class PotholeDetectResponse(BaseModel):
     potholes_found: int
     detections: list[DetectionItem]
     model_mode: str = Field(..., description="'yolo_v26_seg' if weights loaded, else 'simulation_demo'")
+    human_detected: bool = Field(default=False, description="True if a person or human feature was detected and filtered out")
+    warning_message: str | None = Field(default=None, description="Informational message or non-road alert")
     processed_at: datetime = Field(default_factory=datetime.utcnow)
 
 

@@ -123,12 +123,19 @@ def estimate_pothole_depth_and_risk(
         else:
             severity = "minor"
 
+        # Cavity depression verification: Potholes must be depressions (darker or textured relative to asphalt)
+        # If the inner region is noticeably brighter than the surrounding ring, it is not a cavity
+        is_valid_cavity = True
+        if outer_mean > 15.0 and inner_mean > (outer_mean * 1.15):
+            is_valid_cavity = False
+
         return {
             "depth_cm": depth_cm,
             "risk_score": risk_score,
             "severity": severity,
             "roughness_index": round(normalized_roughness, 2),
             "intensity_depression": round(intensity_depression, 3),
+            "is_valid_cavity": is_valid_cavity,
         }
     except Exception as e:
         print(f"[DepthEstimator] OpenCV analysis fallback: {e}")
@@ -140,4 +147,5 @@ def estimate_pothole_depth_and_risk(
             "severity": "severe" if depth_cm >= 5.0 else ("moderate" if depth_cm >= 2.8 else "minor"),
             "roughness_index": 0.4,
             "intensity_depression": 0.25,
+            "is_valid_cavity": True,
         }
