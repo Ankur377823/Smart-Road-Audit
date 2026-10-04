@@ -71,10 +71,10 @@ app.include_router(api_router, prefix="/api")
 # Root endpoint
 # -------------------------
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root():
     """
-    Basic API health response.
+    Basic API health response. Supports both GET and HEAD for Render health checks.
     """
 
     return {
@@ -88,7 +88,7 @@ def root():
 # Health check
 # -------------------------
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     """
     Check whether the API is running.
