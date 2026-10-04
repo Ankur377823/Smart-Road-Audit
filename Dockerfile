@@ -11,7 +11,10 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    YOLO_CONFIG_DIR=/tmp/Ultralytics
+    YOLO_CONFIG_DIR=/tmp \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1
 
 WORKDIR /app
 
@@ -20,7 +23,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /tmp/Ultralytics && chmod -R 777 /tmp
 
 # Install Python dependencies
 COPY backend/requirements.txt requirements.txt

@@ -1,7 +1,20 @@
+import os
+
+# Optimize PyTorch and Ultralytics for cloud container memory and CPU limits
+os.environ["YOLO_CONFIG_DIR"] = "/tmp"
+os.environ["YOLO_VERBOSE"] = "False"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
+try:
+    import torch
+    torch.set_num_threads(1)
+except Exception:
+    torch = None
+
 import base64
 import io
 import math
-import os
 import time
 from typing import Any
 
@@ -88,8 +101,26 @@ class PotholeDetector:
             return self._run_demo_inference(image, width, height)
 
     def _run_yolo_inference(self, image: Any, width: int, height: int, conf_threshold: float = 0.35) -> dict[str, Any]:
-        # Run YOLO inference
-        results = self.model(image, conf=conf_threshold, verbose=False)
+        # Fast, low-memory YOLO inference optimized for cloud containers & CPU
+        if torch is not None:
+            with torch.inference_mode():
+                results = self.model(
+                    image,
+                    conf=conf_threshold,
+                    imgsz=480,
+                    device="cpu",
+                    retina_masks=False,
+                    verbose=False,
+                )
+        else:
+            results = self.model(
+                image,
+                conf=conf_threshold,
+                imgsz=480,
+                device="cpu",
+                retina_masks=False,
+                verbose=False,
+            )
         detections = []
 
         for r in results:
