@@ -18,6 +18,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
   // Live Telemetry & GPS
   const [gps, setGps] = useState({ lat: null, lng: null, speedKmh: null, accuracy: null })
+  const [gpsStatus, setGpsStatus] = useState('locating') // 'locating' | 'locked' | 'denied' | 'unavailable'
   const [fps, setFps] = useState(0)
 
   // Detections & Overlays
@@ -68,28 +69,84 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   }, [stopCamera])
 
   // -------------------------------------------------------------
-  // 2. Geolocation Tracking
+  // 2. Real-time Device Geolocation & Movement Tracking
   // -------------------------------------------------------------
-  useEffect(() => {
-    if (!('geolocation' in navigator)) return
+  const requestLocation = useCallback(() => {
+    if (!('geolocation' in navigator)) {
+      setGpsStatus('unavailable')
+      return null
+    }
 
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        setGps({
-          lat: Number(pos.coords.latitude.toFixed(5)),
-          lng: Number(pos.coords.longitude.toFixed(5)),
-          speedKmh: pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : null,
-          accuracy: Math.round(pos.coords.accuracy),
-        })
-      },
+    setGpsStatus('locating')
+
+    const onPos = (pos) => {
+      setGps({
+        lat: Number(pos.coords.latitude.toFixed(5)),
+        lng: Number(pos.coords.longitude.toFixed(5)),
+        speedKmh: pos.coords.speed != null ? Math.round(pos.coords.speed * 3.6) : null,
+        accuracy: Math.round(pos.coords.accuracy),
+      })
+      setGpsStatus('locked')
+    }
+
+    const onErr = (err) => {
+      console.warn('Geolocation notice:', err.code, err.message)
+      if (err.code === 1) {
+        // Permission denied by user
+        setGpsStatus('denied')
+      } else if (err.code === 3) {
+        // High accuracy timed out - fallback to standard cellular/network positioning
+        navigator.geolocation.getCurrentPosition(
+          onPos,
+          (err2) => {
+            if (err2.code === 1) setGpsStatus('denied')
+            else setGpsStatus('unavailable')
+          },
+          { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+        )
+      } else {
+        setGpsStatus('unavailable')
+      }
+    }
+
+    // Step A: Immediate query for instantaneous location lock
+    navigator.geolocation.getCurrentPosition(
+      onPos,
       (err) => {
-        console.warn('Geolocation notice:', err.message)
+        if (err.code === 3) {
+          navigator.geolocation.getCurrentPosition(
+            onPos,
+            onErr,
+            { enableHighAccuracy: false, timeout: 15000, maximumAge: 60000 }
+          )
+        } else {
+          onErr(err)
+        }
       },
-      { enableHighAccuracy: true, maximumAge: 1000, timeout: 5000 }
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 }
     )
 
-    return () => navigator.geolocation.clearWatch(watchId)
+    // Step B: Continuous movement watcher for drive audits
+    try {
+      return navigator.geolocation.watchPosition(
+        onPos,
+        onErr,
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+      )
+    } catch (e) {
+      console.warn('watchPosition setup failed:', e)
+      return null
+    }
   }, [])
+
+  useEffect(() => {
+    const watchId = requestLocation()
+    return () => {
+      if (watchId !== null && 'geolocation' in navigator) {
+        navigator.geolocation.clearWatch(watchId)
+      }
+    }
+  }, [requestLocation])
 
   // -------------------------------------------------------------
   // 3. Live Webcam & Camera Launcher
@@ -248,10 +305,18 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 (p) => Date.now() - (p.timestamp || 0) < 3000 && p.severity === det.severity
               )
               if (!isRecent) {
+                const targetAuditObj = (audits || []).find((a) => String(a.id) === String(currentAudit))
+                const potholeLat = currentGps.lat != null
+                  ? Number(currentGps.lat)
+                  : (targetAuditObj?.center_lat != null ? Number(targetAuditObj.center_lat) : 0.0)
+                const potholeLng = currentGps.lng != null
+                  ? Number(currentGps.lng)
+                  : (targetAuditObj?.center_lng != null ? Number(targetAuditObj.center_lng) : 0.0)
+
                 newEntries.push({
                   id: `pothole-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-                  latitude: Number(currentGps.lat || 12.9716),
-                  longitude: Number(currentGps.lng || 77.5946),
+                  latitude: potholeLat,
+                  longitude: potholeLng,
                   speedKmh: currentGps.speedKmh ?? null,
                   confidence: Number(det.confidence || 0.85),
                   severity: String(det.severity || 'moderate'),
@@ -337,10 +402,32 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           </h1>
         </div>
 
-        {/* Audit Association Selector & Sensitivity */}
-        <div className="flex flex-wrap items-center gap-4">
+        {/* Audit Association Selector, Sensitivity & Live Geotag Status */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Live Device GPS Indicator */}
+          <div
+            onClick={requestLocation}
+            title={gpsStatus === 'locked' ? 'GPS location locked to device' : 'Click to refresh GPS'}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs cursor-pointer hover:border-slate-600 transition"
+          >
+            {gpsStatus === 'locked' && gps.lat !== null ? (
+              <span className="flex items-center gap-1.5 text-emerald-400 font-mono">
+                <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                GPS: {gps.lat}, {gps.lng}
+              </span>
+            ) : gpsStatus === 'denied' ? (
+              <span className="text-rose-400 flex items-center gap-1">
+                ⚠️ GPS Denied (Click)
+              </span>
+            ) : (
+              <span className="text-sky-300 flex items-center gap-1 animate-pulse">
+                📍 Locating Device...
+              </span>
+            )}
+          </div>
+
           <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300">
-            <span>Confidence Filter:</span>
+            <span>Confidence:</span>
             <input
               type="range"
               min="0.15"
@@ -348,7 +435,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
               step="0.05"
               value={confThreshold}
               onChange={(e) => setConfThreshold(Number(e.target.value))}
-              className="w-24 accent-sky-400 cursor-pointer"
+              className="w-20 accent-sky-400 cursor-pointer"
             />
             <strong className="text-sky-400 min-w-[32px] text-right font-mono">
               {Math.round(confThreshold * 100)}%
@@ -441,9 +528,30 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
             {/* GPS Telemetry HUD */}
             <div className="flex flex-col items-end gap-1 text-right">
-              <span className="hud-badge font-mono text-xs">
-                📍 {gps.lat ? `${gps.lat}°N, ${gps.lng}°E` : '12.9716°N, 77.5946°E'}
-              </span>
+              {gpsStatus === 'locked' && gps.lat !== null ? (
+                <span className="hud-badge font-mono text-xs border-emerald-500/40 text-emerald-300 bg-emerald-950/40">
+                  <span className="inline-block size-2 rounded-full bg-emerald-400 animate-pulse" />
+                  📍 {gps.lat}°N, {gps.lng}°E {gps.accuracy ? `(±${gps.accuracy}m)` : ''}
+                </span>
+              ) : gpsStatus === 'denied' ? (
+                <button
+                  type="button"
+                  onClick={requestLocation}
+                  className="hud-badge text-xs border-rose-500/40 text-rose-300 bg-rose-950/40 hover:bg-rose-900/50 cursor-pointer pointer-events-auto"
+                  title="Location permission denied in browser. Click to retry."
+                >
+                  ⚠️ Location Denied (Retry)
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={requestLocation}
+                  className="hud-badge text-xs border-sky-500/30 text-sky-300 bg-sky-950/40 animate-pulse cursor-pointer pointer-events-auto"
+                  title="Acquiring GPS fix. Click to refresh."
+                >
+                  📍 Locating device GPS...
+                </button>
+              )}
               {gps.speedKmh !== null && (
                 <span className="hud-badge text-xs">
                   SPEED: <strong className="text-amber-400">{gps.speedKmh} km/h</strong>
