@@ -13,31 +13,51 @@ except Exception:
     torch = None
 
 import base64
+import binascii
 import io
 import math
+import threading
 import time
+from contextlib import nullcontext
 from typing import Any
+
+import numpy as np
 
 try:
     from PIL import Image
 except ImportError:
     Image = None
 
+from app.services.pothole_depth_estimator import estimate_pothole_depth_and_risk
+
 WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "weights")
 MODEL_PATH = os.path.join(WEIGHTS_DIR, "best.pt")
 
+MODEL_MODE_YOLO = "yolo_v26_seg"
+MODEL_MODE_SIMULATION = "simulation_demo"
+
 _yolo_model = None
 _model_loaded = False
+_ultralytics_missing = False
+
+# Ultralytics predictors are not thread-safe; FastAPI runs sync routes in a threadpool.
+_inference_lock = threading.Lock()
 
 
 def _load_model_if_available():
-    global _yolo_model, _model_loaded
+    global _yolo_model, _model_loaded, _ultralytics_missing
     if _model_loaded:
         return _yolo_model
 
-    if os.path.exists(MODEL_PATH):
+    if os.path.exists(MODEL_PATH) and not _ultralytics_missing:
         try:
             from ultralytics import YOLO
+        except ImportError:
+            # Optional dependency (requirements-ml.txt); the scanner normally runs the model in the browser
+            _ultralytics_missing = True
+            print("[PotholeDetector] ultralytics not installed; server detection runs in simulation mode")
+            return None
+        try:
             _yolo_model = YOLO(MODEL_PATH)
             _model_loaded = True
             print(f"[PotholeDetector] Successfully loaded custom YOLO model from: {MODEL_PATH}")
@@ -58,19 +78,26 @@ class PotholeDetector:
     def __init__(self):
         self.model = _load_model_if_available()
 
-    def decode_base64_image(self, image_base64: str):
+    def decode_base64_image(self, image_base64: str) -> np.ndarray:
+        """Decodes a Base64 / data-URI frame into an RGB numpy array. Raises ValueError on bad input."""
         if "," in image_base64:
             image_base64 = image_base64.split(",", 1)[1]
-        image_bytes = base64.b64decode(image_base64)
-        if Image is not None:
-            return Image.open(io.BytesIO(image_bytes)).convert("RGB")
         try:
-            import cv2
-            import numpy as np
-            nparr = np.frombuffer(image_bytes, np.uint8)
-            return cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        except Exception:
-            return None
+            image_bytes = base64.b64decode(image_base64, validate=False)
+        except (binascii.Error, ValueError) as exc:
+            raise ValueError("Frame is not valid Base64.") from exc
+
+        if Image is not None:
+            try:
+                return np.asarray(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
+            except Exception as exc:
+                raise ValueError("Frame could not be decoded as an image.") from exc
+
+        import cv2
+        bgr = cv2.imdecode(np.frombuffer(image_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise ValueError("Frame could not be decoded as an image.")
+        return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
 
     def detect_in_frame(
         self,
@@ -84,12 +111,7 @@ class PotholeDetector:
         Processes a camera frame and returns detected potholes in real time.
         """
         image = self.decode_base64_image(image_base64)
-        if hasattr(image, "size"):
-            width, height = image.size
-        elif hasattr(image, "shape"):
-            height, width = image.shape[:2]
-        else:
-            width, height = 640, 480
+        height, width = image.shape[:2]
 
         # Refresh model check if best.pt was placed recently
         if self.model is None:
@@ -97,31 +119,24 @@ class PotholeDetector:
 
         if self.model is not None:
             return self._run_yolo_inference(image, width, height, conf_threshold=conf_threshold)
-        else:
-            return self._run_demo_inference(image, width, height)
+        return self._run_demo_inference(width, height)
 
-    def _run_yolo_inference(self, image: Any, width: int, height: int, conf_threshold: float = 0.35) -> dict[str, Any]:
+    def _run_yolo_inference(self, image: np.ndarray, width: int, height: int, conf_threshold: float = 0.35) -> dict[str, Any]:
         # Fast, low-memory YOLO inference optimized for cloud containers & CPU
-        if torch is not None:
-            with torch.inference_mode():
-                results = self.model(
-                    image,
-                    conf=conf_threshold,
-                    imgsz=480,
-                    device="cpu",
-                    retina_masks=False,
-                    verbose=False,
-                )
-        else:
+        grad_ctx = torch.inference_mode() if torch is not None else nullcontext()
+        with _inference_lock, grad_ctx:
+            # Ultralytics treats numpy input as BGR, so flip channels from RGB
             results = self.model(
-                image,
+                np.ascontiguousarray(image[:, :, ::-1]),
                 conf=conf_threshold,
                 imgsz=480,
                 device="cpu",
                 retina_masks=False,
                 verbose=False,
             )
+
         detections = []
+        filtered_non_road = 0
 
         for r in results:
             boxes = r.boxes
@@ -140,14 +155,15 @@ class PotholeDetector:
                 x1, y1, x2, y2 = box
                 box_w = max(1.0, x2 - x1)
                 box_h = max(1.0, y2 - y1)
-                area_ratio = (box_w * box_h) / float(width * height)
 
                 # Filter out pure ceiling/sky boxes in the top 10%
-                if box[3] < (height * 0.10):
+                if y2 < (height * 0.10):
+                    filtered_non_road += 1
                     continue
 
                 # Filter extreme vertical objects (standing human aspect ratio: height > 2.2x width)
-                if box_w > 0 and (box_h / box_w) > 2.2:
+                if (box_h / box_w) > 2.2:
+                    filtered_non_road += 1
                     continue
 
                 # Extract segmentation polygon mask if available
@@ -155,35 +171,37 @@ class PotholeDetector:
                 if masks is not None and len(masks.xy) > i:
                     polygon = masks.xy[i].tolist()
 
-                # Determine severity level
-                if conf >= 0.70 or area_ratio >= 0.04:
-                    severity = "severe"
-                elif conf >= 0.50 or area_ratio >= 0.02:
-                    severity = "moderate"
-                else:
-                    severity = "minor"
+                # Depth, risk and severity come from the OpenCV cavity analysis, not model confidence
+                metrics = estimate_pothole_depth_and_risk(image, polygon, box)
+                if not metrics.get("is_valid_cavity", True):
+                    filtered_non_road += 1
+                    continue
 
                 detections.append({
                     "id": f"det-{int(time.time() * 1000)}-{i}",
                     "box": [round(coord, 2) for coord in box],
                     "polygon": [[round(pt[0], 1), round(pt[1], 1)] for pt in polygon],
                     "confidence": round(conf, 3),
-                    "severity": severity,
-                    "depth_cm": round(area_ratio * 100.0, 1),
-                    "risk_score": round(conf * 100.0, 1),
-                    "area_ratio": round(area_ratio, 4),
+                    "severity": metrics["severity"],
+                    "depth_cm": metrics["depth_cm"],
+                    "risk_score": metrics["risk_score"],
+                    "area_ratio": round((box_w * box_h) / float(width * height), 4),
                     "label": "pothole",
                 })
 
         return {
             "potholes_found": len(detections),
             "detections": detections,
-            "model_mode": "yolo_v26_seg",
+            "model_mode": MODEL_MODE_YOLO,
+            "human_detected": filtered_non_road > 0,
+            "warning_message": (
+                f"{filtered_non_road} non-road object(s) filtered" if filtered_non_road else None
+            ),
         }
 
-    def _run_demo_inference(self, image: Any, width: int, height: int) -> dict[str, Any]:
+    def _run_demo_inference(self, width: int, height: int) -> dict[str, Any]:
         """
-        Clean simulation mode when model weights are not mounted.
+        Simulation mode when model weights are not mounted. Results are synthetic and must never be saved.
         """
         now = time.time()
         cycle = int(now) % 6
@@ -219,5 +237,6 @@ class PotholeDetector:
         return {
             "potholes_found": len(detections),
             "detections": detections,
-            "model_mode": "simulation_demo",
+            "model_mode": MODEL_MODE_SIMULATION,
+            "warning_message": "Simulation mode: model weights not loaded. Detections are synthetic.",
         }

@@ -6,10 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies required for OpenCV, Ultralytics YOLO and container health checks
+# Install system dependencies for container health checks
+# (for optional server-side YOLO, also install libgl1 libglib2.0-0 and requirements-ml.txt)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
     curl \
     && rm -rf /var/lib/apt/lists/*
 

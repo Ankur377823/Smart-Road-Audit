@@ -1,0 +1,6 @@
+# Optional: server-side YOLO inference for POST /potholes/detect.
+# The scanner runs the model in the browser (frontend/public/models/pothole-seg.onnx), so production
+# images skip these. PyTorch alone needs ~400-500 MB RAM, more than small free hosting tiers allow.
+#   pip install -r requirements.txt -r requirements-ml.txt
+ultralytics>=8.2.0
+opencv-python>=4.8.0

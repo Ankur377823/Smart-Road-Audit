@@ -6,25 +6,20 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Python Backend + YOLO Model + Static Frontend Serving
+# Stage 2: Python Backend + Static Frontend Serving
+# Pothole detection runs in the browser (ONNX model ships in the frontend build), so there is no
+# PyTorch here; this keeps the container well inside small free-tier memory limits.
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    YOLO_CONFIG_DIR=/tmp \
-    OMP_NUM_THREADS=1 \
-    MKL_NUM_THREADS=1 \
-    OPENBLAS_NUM_THREADS=1
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Install system dependencies required for OpenCV, Ultralytics YOLO and container health checks
+# Install system dependencies for container health checks
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 \
-    libglib2.0-0 \
     curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /tmp/Ultralytics && chmod -R 777 /tmp
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 COPY backend/requirements.txt requirements.txt

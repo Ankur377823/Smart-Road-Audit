@@ -220,6 +220,37 @@ class GoogleRoadsProvider:
             },
         )
 
+    async def nearest_roads(
+        self,
+        points: list[tuple[float, float]],
+    ) -> dict[str, Any]:
+        """
+        Find the nearest road for up to 100 independent
+        coordinates (unlike snapToRoads, points need not
+        form a continuous path).
+        """
+
+        if not points:
+            return {
+                "snappedPoints": []
+            }
+
+        for latitude, longitude in points:
+            self._validate_coordinates(
+                latitude,
+                longitude,
+            )
+
+        return await self._get(
+            "nearestRoads",
+            {
+                "points": "|".join(
+                    f"{latitude},{longitude}"
+                    for latitude, longitude in points
+                ),
+            },
+        )
+
     # ==========================================================
     # COORDINATE VALIDATION
     # ==========================================================

@@ -295,3 +295,17 @@
   height: 100%;
   object-fit: cover;
 }
+
+.pothole-map {
+  width: 100%;
+  height: 320px;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  border: 1px solid rgba(51, 65, 85, 0.8);
+}
+
+@media (max-width: 640px) {
+  .pothole-map {
+    height: 240px;
+  }
+}

@@ -1,24 +1,38 @@
-from datetime import datetime
-from pydantic import BaseModel, Field
+from datetime import datetime, timezone
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+Severity = Literal["minor", "moderate", "severe"]
+LocationSource = Literal["gps", "audit_center", "none"]
+
+# ~3 MB of Base64 text; a 640px JPEG frame from the scanner is ~50-150 KB
+MAX_FRAME_BASE64_CHARS = 3_000_000
+# Cropped evidence snapshot; keeps DB rows and report payloads small
+MAX_SNAPSHOT_BASE64_CHARS = 400_000
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class DetectionItem(BaseModel):
     id: str | None = None
-    box: list[float] = Field(..., description="[x1, y1, x2, y2] normalized or pixel bounds")
+    box: list[float] = Field(..., description="[x1, y1, x2, y2] pixel bounds")
     polygon: list[list[float]] = Field(default_factory=list, description="List of [x, y] polygon vertices for segmentation mask")
     confidence: float
-    severity: str = "moderate"
-    depth_cm: float = 3.5
-    risk_score: float = 50.0
+    severity: Severity
+    depth_cm: float
+    risk_score: float
     area_ratio: float = 0.0
     label: str = "pothole"
 
 
 class PotholeDetectRequest(BaseModel):
-    image_base64: str = Field(..., description="Base64 encoded JPEG/PNG frame from camera")
-    conf_threshold: float = Field(0.50, description="Confidence threshold filter (0.25 to 0.90)")
-    latitude: float | None = None
-    longitude: float | None = None
+    image_base64: str = Field(..., max_length=MAX_FRAME_BASE64_CHARS, description="Base64 encoded JPEG/PNG frame from camera")
+    conf_threshold: float = Field(0.35, ge=0.1, le=0.95, description="Confidence threshold filter")
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
     speed_kmh: float | None = None
     audit_id: int | None = None
 
@@ -27,35 +41,45 @@ class PotholeDetectResponse(BaseModel):
     potholes_found: int
     detections: list[DetectionItem]
     model_mode: str = Field(..., description="'yolo_v26_seg' if weights loaded, else 'simulation_demo'")
-    human_detected: bool = Field(default=False, description="True if a person or human feature was detected and filtered out")
+    human_detected: bool = Field(default=False, description="True if a person or other non-road object was filtered out")
     warning_message: str | None = Field(default=None, description="Informational message or non-road alert")
-    processed_at: datetime = Field(default_factory=datetime.utcnow)
+    processed_at: datetime = Field(default_factory=_utcnow)
 
 
 class PotholeSaveItem(BaseModel):
-    latitude: float
-    longitude: float
-    confidence: float
-    severity: str
-    depth_cm: float = 3.5
-    risk_score: float = 50.0
-    area_ratio: float = 0.0
+    client_id: str | None = Field(None, max_length=64, description="Scanner-generated ID used to make saves idempotent")
+    latitude: float | None = Field(None, ge=-90, le=90)
+    longitude: float | None = Field(None, ge=-180, le=180)
+    location_source: LocationSource = "gps"
+    gps_accuracy_m: float | None = Field(None, ge=0)
+    confidence: float = Field(..., ge=0, le=1)
+    severity: Severity
+    depth_cm: float = Field(..., ge=0)
+    risk_score: float = Field(..., ge=0, le=100)
+    area_ratio: float = Field(0.0, ge=0, le=1)
     geometry_json: str | None = None
-    snapshot_image: str | None = None
-    speed_kmh: float | None = None
-    detected_at: datetime = Field(default_factory=datetime.utcnow)
+    snapshot_image: str | None = Field(None, max_length=MAX_SNAPSHOT_BASE64_CHARS)
+    speed_kmh: float | None = Field(None, ge=0)
+    detected_at: datetime = Field(default_factory=_utcnow)
 
 
 class PotholeBatchSaveRequest(BaseModel):
     audit_id: int
-    detections: list[PotholeSaveItem]
+    detections: list[PotholeSaveItem] = Field(..., max_length=500)
 
 
 class PotholeRecordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     audit_id: int
-    latitude: float
-    longitude: float
+    client_id: str | None = None
+    latitude: float | None
+    longitude: float | None
+    snapped_latitude: float | None = None
+    snapped_longitude: float | None = None
+    location_source: str = "gps"
+    gps_accuracy_m: float | None = None
     confidence: float
     severity: str
     depth_cm: float = 0.0
@@ -66,9 +90,6 @@ class PotholeRecordResponse(BaseModel):
     speed_kmh: float | None
     detected_at: datetime
 
-    class Config:
-        from_attributes = True
-
 
 class AuditPotholesSummary(BaseModel):
     audit_id: int
@@ -77,3 +98,9 @@ class AuditPotholesSummary(BaseModel):
     moderate_count: int
     minor_count: int
     detections: list[PotholeRecordResponse]
+
+
+class PotholeSaveResponse(BaseModel):
+    saved: list[PotholeRecordResponse]
+    skipped_duplicates: int
+    compliance_score: float | None

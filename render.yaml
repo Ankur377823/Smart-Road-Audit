@@ -11,7 +11,9 @@ databases:
 
 services:
   # -------------------------------------------------------------
-  # Backend Web Service (FastAPI + YOLOv8 + OpenCV via Docker)
+  # Backend Web Service (FastAPI via Docker, also serves the built frontend)
+  # Pothole detection runs in the browser (ONNX model in the frontend build),
+  # so the image has no PyTorch and stays well under the free plan's RAM.
   # -------------------------------------------------------------
   - type: web
     name: smartroad-backend
@@ -33,10 +35,6 @@ services:
         value: "false"
       - key: CORS_ORIGINS
         value: "*"
-      - key: YOLO_CONFIG_DIR
-        value: "/tmp"
-      - key: OMP_NUM_THREADS
-        value: "1"
       - key: GOOGLE_MAPS_API_KEY
         sync: false
 

@@ -1,6 +1,92 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getAuditPotholes } from '../../services/potholeApi'
+import { GOOGLE_MAP_ID, loadGoogleMaps } from '../../services/googleMaps'
+import { formatCoord } from './geo'
 import './pothole.css'
+
+const SEVERITY_PIN = {
+  severe: { background: '#ef4444', borderColor: '#991b1b' },
+  moderate: { background: '#f59e0b', borderColor: '#92400e' },
+  minor: { background: '#38bdf8', borderColor: '#075985' },
+}
+
+function potholePosition(item) {
+  const lat = item.snapped_latitude ?? item.latitude
+  const lng = item.snapped_longitude ?? item.longitude
+  return lat != null && lng != null ? { lat, lng } : null
+}
+
+/**
+ * Google Map with one severity-coloured marker per geotagged pothole.
+ */
+function PotholeMap({ potholes }) {
+  const mapRef = useRef(null)
+  const [error, setError] = useState('')
+
+  const hasLocated = potholes.some((p) => potholePosition(p))
+
+  useEffect(() => {
+    const located = potholes.filter((p) => potholePosition(p))
+    if (!located.length || !mapRef.current) return
+    let cancelled = false
+    const markers = []
+
+    loadGoogleMaps()
+      .then(async (maps) => {
+        const { Map } = await maps.importLibrary('maps')
+        const { AdvancedMarkerElement, PinElement } = await maps.importLibrary('marker')
+        if (cancelled || !mapRef.current) return
+
+        const map = new Map(mapRef.current, {
+          mapId: GOOGLE_MAP_ID,
+          center: potholePosition(located[0]),
+          zoom: 16,
+          streetViewControl: false,
+          mapTypeControl: false,
+        })
+        const bounds = new window.google.maps.LatLngBounds()
+
+        located.forEach((item, index) => {
+          const position = potholePosition(item)
+          bounds.extend(position)
+          const pin = new PinElement({
+            ...(SEVERITY_PIN[item.severity] || SEVERITY_PIN.minor),
+            glyphColor: '#ffffff',
+          })
+          markers.push(new AdvancedMarkerElement({
+            map,
+            position,
+            content: pin.element,
+            title: `Pothole #${located.length - index}: ${item.severity}, ${item.depth_cm} cm` +
+              (item.location_source === 'audit_center' ? ' (approximate location)' : ''),
+          }))
+        })
+        if (located.length > 1) map.fitBounds(bounds, 48)
+      })
+      .catch((err) => !cancelled && setError(err.message || 'Unable to load map.'))
+
+    return () => {
+      cancelled = true
+      markers.forEach((m) => { m.map = null })
+    }
+  }, [potholes])
+
+  if (!hasLocated) {
+    return (
+      <div className="mt-5 rounded-xl border border-dashed border-slate-800 p-4 text-center text-xs text-slate-500">
+        No geotagged potholes to map.
+      </div>
+    )
+  }
+
+  return error ? (
+    <div className="mt-5 rounded-xl border border-slate-800 p-4 text-center text-xs text-slate-500">
+      Map unavailable: {error}
+    </div>
+  ) : (
+    <div ref={mapRef} className="pothole-map mt-5" role="region" aria-label="Map of detected potholes" />
+  )
+}
 
 function PotholeReportCard({ auditId, onOpenScanner = () => {} }) {
   const [data, setData] = useState(null)
@@ -69,6 +155,8 @@ function PotholeReportCard({ auditId, onOpenScanner = () => {} }) {
         </div>
       </div>
 
+      {potholes.length > 0 && <PotholeMap potholes={potholes} />}
+
       {/* Snapshots Evidence Gallery */}
       {potholes.length === 0 ? (
         <div className="mt-6 rounded-xl border border-dashed border-slate-800 p-8 text-center">
@@ -113,18 +201,22 @@ function PotholeReportCard({ auditId, onOpenScanner = () => {} }) {
                 </div>
                 <div className="mt-2 flex items-center justify-between text-[11px]">
                   <span className="font-semibold text-amber-300">
-                    Depth: {item.depth_cm ? `${item.depth_cm} cm` : '3.5 cm'}
+                    Depth: {item.depth_cm != null ? `${Number(item.depth_cm).toFixed(1)} cm` : 'N/A'}
                   </span>
                   <span className="font-mono text-sky-400">
-                    Risk: {item.risk_score ? `${Math.round(item.risk_score)}/100` : '50/100'}
+                    Risk: {item.risk_score != null ? `${Math.round(item.risk_score)}/100` : 'N/A'}
                   </span>
                 </div>
                 <div className="mt-1 text-[11px] text-slate-400 font-mono">
-                  📍 {item.latitude.toFixed(5)}, {item.longitude.toFixed(5)}
+                  📍 {formatCoord(item.snapped_latitude ?? item.latitude, item.snapped_longitude ?? item.longitude)}
+                  {item.location_source === 'gps' && item.gps_accuracy_m != null && ` ±${Math.round(item.gps_accuracy_m)}m`}
+                  {item.location_source === 'audit_center' && (
+                    <span className="text-amber-300"> (approx.)</span>
+                  )}
                 </div>
                 <div className="mt-1 text-[10px] text-slate-500">
-                  {new Date(item.detected_at).toLocaleTimeString()} • Speed:{' '}
-                  {item.speed_kmh ? `${item.speed_kmh} km/h` : 'N/A'}
+                  {new Date(item.detected_at).toLocaleString()} • Speed:{' '}
+                  {item.speed_kmh != null ? `${Math.round(item.speed_kmh)} km/h` : 'N/A'}
                 </div>
               </div>
             </div>

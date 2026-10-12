@@ -1,3 +1,4 @@
+import mimetypes
 import os
 from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -32,6 +33,35 @@ with engine.begin() as connection:
         connection.execute(
             text('ALTER TABLE segments ADD COLUMN max_speed FLOAT')
         )
+
+    pothole_columns = {
+        column['name']
+        for column in inspect(engine).get_columns('pothole_detections')
+    }
+    pothole_additions = {
+        'client_id': 'VARCHAR(64)',
+        'snapped_latitude': 'FLOAT',
+        'snapped_longitude': 'FLOAT',
+        'location_source': "VARCHAR(20) NOT NULL DEFAULT 'gps'",
+        'gps_accuracy_m': 'FLOAT',
+    }
+    for name, ddl in pothole_additions.items():
+        if name not in pothole_columns:
+            connection.execute(
+                text(f'ALTER TABLE pothole_detections ADD COLUMN {name} {ddl}')
+            )
+    if engine.dialect.name == 'postgresql':
+        # Potholes without a GPS fix are stored with null coordinates
+        connection.execute(text(
+            'ALTER TABLE pothole_detections ALTER COLUMN latitude DROP NOT NULL'
+        ))
+        connection.execute(text(
+            'ALTER TABLE pothole_detections ALTER COLUMN longitude DROP NOT NULL'
+        ))
+    connection.execute(text(
+        'CREATE UNIQUE INDEX IF NOT EXISTS uq_pothole_audit_client '
+        'ON pothole_detections (audit_id, client_id)'
+    ))
 
 
 # -------------------------
@@ -94,6 +124,10 @@ candidate_paths = [
     Path('frontend_dist'),
     Path('../frontend/dist'),
 ]
+
+# Slim images may lack /etc/mime.types; browsers need these for WebAssembly streaming and the ONNX model
+mimetypes.add_type('application/wasm', '.wasm')
+mimetypes.add_type('application/octet-stream', '.onnx')
 
 FRONTEND_DIST = None
 for p in candidate_paths:

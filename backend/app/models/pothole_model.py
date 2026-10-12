@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -15,6 +15,10 @@ class PotholeDetection(Base):
     Standalone database model for storing detected potholes associated with road audits.
     """
     __tablename__ = "pothole_detections"
+    __table_args__ = (
+        # Re-saving the same scanner session must not create duplicates
+        UniqueConstraint("audit_id", "client_id", name="uq_pothole_audit_client"),
+    )
 
     id: Mapped[int] = mapped_column(
         Integer,
@@ -29,15 +33,45 @@ class PotholeDetection(Base):
         index=True,
     )
 
-    # Geographic coordinates
-    latitude: Mapped[float] = mapped_column(
+    # Scanner-generated identifier (idempotent saves)
+    client_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
+    # Geographic coordinates (null when no position was available)
+    latitude: Mapped[float | None] = mapped_column(
         Float,
+        nullable=True,
+    )
+
+    longitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    # Road-snapped coordinates (Google Roads nearestRoads), when available
+    snapped_latitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    snapped_longitude: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    # Where the coordinates came from: "gps", "audit_center" or "none"
+    location_source: Mapped[str] = mapped_column(
+        String(20),
+        default="gps",
         nullable=False,
     )
 
-    longitude: Mapped[float] = mapped_column(
+    # Reported horizontal GPS accuracy in metres
+    gps_accuracy_m: Mapped[float | None] = mapped_column(
         Float,
-        nullable=False,
+        nullable=True,
     )
 
     # Detection metrics
@@ -94,8 +128,8 @@ class PotholeDetection(Base):
     )
 
     detected_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        default=datetime.utcnow,
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
