@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import RequireAuth from "./components/layout/RequireAuth";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
@@ -8,90 +9,24 @@ import AuditDetails from "./pages/AuditDetails";
 import AuditHistory from "./pages/AuditHistory";
 import PotholeScanPage from "./pages/PotholeScanPage";
 
+const protect = (element) => <RequireAuth>{element}</RequireAuth>;
+
 function App() {
   return (
     <Routes>
-      {/* ==================================================
-          LANDING
-      ================================================== */}
+      {/* Public */}
+      <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
 
-      <Route
-        path="/"
-        element={<Landing />}
-      />
+      {/* Signed-in pages */}
+      <Route path="/dashboard" element={protect(<Dashboard />)} />
+      <Route path="/audits" element={protect(<AuditHistory />)} />
+      <Route path="/audits/create" element={protect(<CreateAudit />)} />
+      <Route path="/audits/:auditId" element={protect(<AuditDetails />)} />
+      <Route path="/scanner" element={protect(<PotholeScanPage />)} />
+      <Route path="/potholes/scan" element={<Navigate to="/scanner" replace />} />
 
-      {/* ==================================================
-          LOGIN
-      ================================================== */}
-
-      <Route
-        path="/login"
-        element={<Login />}
-      />
-
-      {/* ==================================================
-          DASHBOARD
-      ================================================== */}
-
-      <Route
-        path="/dashboard"
-        element={<Dashboard />}
-      />
-
-      {/* ==================================================
-          CREATE AUDIT
-      ================================================== */}
-
-      <Route
-        path="/audits/create"
-        element={<CreateAudit />}
-      />
-
-      {/* ==================================================
-          AUDIT HISTORY
-      ================================================== */}
-
-      <Route
-        path="/audits"
-        element={<AuditHistory />}
-      />
-
-      {/* ==================================================
-          AUDIT DETAILS
-      ================================================== */}
-
-      <Route
-        path="/audits/:auditId"
-        element={<AuditDetails />}
-      />
-
-      {/* ==================================================
-          POTHOLE SCANNER
-      ================================================== */}
-
-      <Route
-        path="/scanner"
-        element={<PotholeScanPage />}
-      />
-
-      <Route
-        path="/potholes/scan"
-        element={<PotholeScanPage />}
-      />
-
-      {/* ==================================================
-          FALLBACK
-      ================================================== */}
-
-      <Route
-        path="*"
-        element={
-          <Navigate
-            to="/"
-            replace
-          />
-        }
-      />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

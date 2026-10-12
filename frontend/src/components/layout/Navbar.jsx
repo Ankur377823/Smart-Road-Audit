@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { IconClose, IconLogout, IconMenu, IconPlus } from "../common/Icons";
+import { signOut } from "../../services/session";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", match: (path) => path === "/dashboard" },
@@ -26,6 +27,11 @@ function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  const handleSignOut = () => {
+    signOut();
+    navigate("/login", { replace: true });
+  };
 
   // Close the mobile menu after navigating
   useEffect(() => {
@@ -69,7 +75,7 @@ function Navbar() {
           </button>
           <button
             type="button"
-            onClick={() => navigate("/login")}
+            onClick={handleSignOut}
             className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
             title="Sign out"
             aria-label="Sign out"
@@ -107,7 +113,7 @@ function Navbar() {
               <IconPlus className="size-4" />
               New audit
             </button>
-            <button type="button" onClick={() => navigate("/login")} className="btn btn-secondary">
+            <button type="button" onClick={handleSignOut} className="btn btn-secondary">
               <IconLogout className="size-4" />
               Sign out
             </button>

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 
 import { BrandMark } from "../components/layout/Navbar";
+import { isSignedIn, loginPath } from "../services/session";
 import { IconArrowRight, IconCheck, IconRoad, IconScan, IconShield } from "../components/common/Icons";
 
 const FEATURES = [
@@ -22,12 +23,15 @@ const FEATURES = [
 ];
 
 function Landing() {
+  // Signed-in visitors go straight to the page; everyone else signs in first and is then sent on
+  const entry = (path) => (isSignedIn() ? path : loginPath(path));
+
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
         <BrandMark to="/" />
-        <Link to="/login" className="text-sm font-semibold text-slate-700 hover:text-slate-900">
-          Sign in
+        <Link to={entry("/dashboard")} className="text-sm font-semibold text-slate-700 hover:text-slate-900">
+          {isSignedIn() ? "Open dashboard" : "Sign in"}
         </Link>
       </header>
 
@@ -43,11 +47,11 @@ function Landing() {
               workspace for road safety teams.
             </p>
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Link to="/login" className="btn btn-primary px-6 py-3 text-base">
+              <Link to={entry("/dashboard")} className="btn btn-primary px-6 py-3 text-base">
                 Get started
                 <IconArrowRight className="size-4" />
               </Link>
-              <Link to="/scanner" className="btn btn-secondary px-6 py-3 text-base">
+              <Link to={entry("/scanner")} className="btn btn-secondary px-6 py-3 text-base">
                 Try the pothole scanner
               </Link>
             </div>

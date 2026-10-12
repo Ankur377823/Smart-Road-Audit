@@ -1,14 +1,17 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 
 import { BrandMark } from "../components/layout/Navbar";
 import { Notice } from "../components/common/ui";
+import { isSignedIn, safeNextPath, signIn } from "../services/session";
 
 const DEMO_EMAIL = "admin@smartroad.local";
 const DEMO_PASSWORD = "smartroad123";
 
 function Login() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const nextPath = safeNextPath(searchParams.get("next"));
 
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -23,7 +26,8 @@ function Login() {
 
     // Demo authentication
     if (form.email.trim() === DEMO_EMAIL && form.password === DEMO_PASSWORD) {
-      navigate("/dashboard");
+      signIn();
+      navigate(nextPath, { replace: true });
       return;
     }
     setError("Incorrect email or password. Use the demo credentials below.");
@@ -32,6 +36,11 @@ function Login() {
   function fillDemo() {
     setForm({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
     setError("");
+  }
+
+  // Already signed in: skip the form
+  if (isSignedIn()) {
+    return <Navigate to={nextPath} replace />;
   }
 
   return (
@@ -44,7 +53,9 @@ function Login() {
         <div className="w-full max-w-sm">
           <div className="card p-6 sm:p-8">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sign in</h1>
-            <p className="mt-1 text-sm text-slate-600">Welcome back. Sign in to your workspace.</p>
+            <p className="mt-1 text-sm text-slate-600">
+              {nextPath === "/scanner" ? "Sign in to use the pothole scanner." : "Welcome back. Sign in to your workspace."}
+            </p>
 
             <form onSubmit={handleSubmit} className="mt-6 space-y-4">
               <div>
