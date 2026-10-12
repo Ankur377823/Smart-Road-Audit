@@ -1,9 +1,10 @@
-import { estimatePotholeDepthAndRisk } from './depthEstimator'
+import { estimatePotholeDepth } from './depthEstimator'
 import { decodeSegmentation } from './yoloSeg'
 
 /**
  * Turns raw model outputs into scanner detections, applying the same non-road filters
- * and depth/risk analysis as the backend's PotholeDetector.
+ * and visual depth estimate as the backend's PotholeDetector. IRC severity is assigned on the main
+ * thread, where the camera height and tilt needed to measure width are known.
  */
 export function buildDetections({ rgba, width, height, output0, dims0, output1, dims1, meta, confThreshold }) {
   const raw = decodeSegmentation(output0, dims0, output1, dims1, { ...meta, width, height }, { confThreshold })
@@ -22,7 +23,7 @@ export function buildDetections({ rgba, width, height, output0, dims0, output1, 
       return
     }
 
-    const metrics = estimatePotholeDepthAndRisk(rgba, width, height, det.polygon, det.box)
+    const metrics = estimatePotholeDepth(rgba, width, height, det.polygon, det.box)
     if (!metrics.is_valid_cavity) {
       filteredNonRoad++
       return
@@ -33,9 +34,7 @@ export function buildDetections({ rgba, width, height, output0, dims0, output1, 
       box: det.box.map((v) => Math.round(v * 100) / 100),
       polygon: det.polygon,
       confidence: Math.round(det.confidence * 1000) / 1000,
-      severity: metrics.severity,
       depth_cm: metrics.depth_cm,
-      risk_score: metrics.risk_score,
       area_ratio: Math.round(((boxW * boxH) / (width * height)) * 10000) / 10000,
       label: 'pothole',
     })

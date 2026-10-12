@@ -44,6 +44,11 @@ with engine.begin() as connection:
         'snapped_longitude': 'FLOAT',
         'location_source': "VARCHAR(20) NOT NULL DEFAULT 'gps'",
         'gps_accuracy_m': 'FLOAT',
+        'depth_source': "VARCHAR(20) NOT NULL DEFAULT 'estimated'",
+        'width_mm': 'FLOAT',
+        'area_m2': 'FLOAT',
+        'risk_level': 'VARCHAR(20)',
+        'action_priority': 'VARCHAR(30)',
     }
     for name, ddl in pothole_additions.items():
         if name not in pothole_columns:
@@ -57,6 +62,9 @@ with engine.begin() as connection:
         ))
         connection.execute(text(
             'ALTER TABLE pothole_detections ALTER COLUMN longitude DROP NOT NULL'
+        ))
+        connection.execute(text(
+            'ALTER TABLE pothole_detections ALTER COLUMN depth_cm DROP NOT NULL'
         ))
     connection.execute(text(
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_pothole_audit_client '

@@ -3,9 +3,13 @@ import PotholeCanvasOverlay from './PotholeCanvasOverlay'
 import { detectPotholes, savePotholesToAudit } from '../../services/potholeApi'
 import { distanceMeters, formatCoord } from './geo'
 import { SEVERITY_TONE } from './severity'
+import { CAMERA_HEIGHTS, DEFAULT_PITCH_DEG, measureOnGround, pitchFromOrientation } from '../../ml/pothole/groundGeometry'
+import { classifyPothole, defaultCategoryForRoadClass, DEFAULT_CARRIAGEWAY_WIDTH_M, IRC_CLASS_LABEL } from '../../ml/pothole/irc82'
+import { assessRisk } from '../../ml/pothole/sp88'
+import { openPotholeReport, openReportWindow } from '../../utils/potholeReport'
 import { detectOnDevice, isOnDeviceSupported, loadOnDeviceDetector } from '../../ml/pothole/onDeviceDetector'
 import { Badge, Notice, PageHeader } from '../common/ui'
-import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconStop, IconTrash } from '../common/Icons'
+import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconStop, IconTrash } from '../common/Icons'
 import './pothole.css'
 
 // On-device inference is paced by the worker; server round-trips are throttled harder
@@ -46,6 +50,54 @@ function isFixFresh(fix, now = Date.now()) {
   if (fix.lat == null || !fix.timestamp) return false
   const maxAge = fix.speedKmh != null && fix.speedKmh < STATIONARY_KMH ? STATIONARY_FIX_MS : STALE_FIX_MS
   return now - fix.timestamp <= maxAge
+}
+
+/**
+ * Adds real-world size (ground projection), the IRC:82-2015 size class and the IRC:SP:88-2019 risk
+ * to a raw detection. Depth comes from the visual estimate unless the auditor entered a measurement.
+ */
+function classifyEntry({ depthCm, widthMm, speedKmh, roadClass }) {
+  const irc = classifyPothole({ depthMm: depthCm != null ? depthCm * 10 : null, widthMm })
+  const risk = assessRisk({ severity: irc.severity, speedKmh, roadClass })
+  return { severity: irc.severity, sizeIndex: irc.sizeIndex, riskLevel: risk.riskLevel, actionPriority: risk.priority }
+}
+
+function enrichDetection(det, frameW, frameH, camera, speedKmh, roadClass) {
+  if (!Array.isArray(det?.box) || det.box.length !== 4) return det
+  const ground = measureOnGround(det, frameW, frameH, camera)
+  const depthCm = det.depth_cm ?? null
+  const cls = classifyEntry({ depthCm, widthMm: ground?.widthMm ?? null, speedKmh, roadClass })
+  return {
+    ...det,
+    depth_cm: depthCm,
+    width_mm: ground?.widthMm ?? null,
+    area_m2: ground?.areaM2 ?? null,
+    severity: cls.severity,
+    risk_score: cls.sizeIndex,
+    risk_level: cls.riskLevel,
+    action_priority: cls.actionPriority,
+  }
+}
+
+/** Normalises a scanner entry for the PDF report. */
+function sessionEntryToReport(p) {
+  return {
+    severity: p.severity,
+    riskLevel: p.riskLevel,
+    actionPriority: p.actionPriority,
+    depthMm: p.depth_cm != null ? p.depth_cm * 10 : null,
+    depthSource: p.depthSource,
+    widthMm: p.width_mm,
+    areaM2: p.area_m2,
+    confidence: p.confidence,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    locationSource: p.locationSource,
+    gpsAccuracy: p.gpsAccuracy,
+    speedKmh: p.speedKmh,
+    detectedAt: p.timestamp,
+    snapshot: p.snapshot,
+  }
 }
 
 function newId() {
@@ -117,6 +169,24 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState(null)
   const [facingMode, setFacingMode] = useState('environment')
+
+  // Camera geometry for measuring pothole width/area on the road plane
+  const [cameraHeightM, setCameraHeightM] = useState(CAMERA_HEIGHTS[0].value)
+  const cameraHeightRef = useRef(cameraHeightM)
+  cameraHeightRef.current = cameraHeightM
+  const pitchRef = useRef(null)
+  const [pitchSource, setPitchSource] = useState('assumed')
+
+  // Distance covered with the camera running (GPS), for the IRC:82 pothole area-% rating
+  const surveyRef = useRef({ last: null, total: 0 })
+  const [surveyDistanceM, setSurveyDistanceM] = useState(0)
+  const cameraActiveRef = useRef(false)
+
+  const listRef = useRef(null)
+  const [scanEnded, setScanEnded] = useState(false)
+  const [editingDepthId, setEditingDepthId] = useState(null)
+  const [depthDraft, setDepthDraft] = useState('')
+  const [reportBusy, setReportBusy] = useState(false)
 
   // Detection engine: 'loading' while the on-device model downloads, then 'device' or 'server' (fallback)
   const [engine, setEngine] = useState(() => (isOnDeviceSupported() ? 'loading' : 'server'))
@@ -248,6 +318,21 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       return { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), speedKmh, timestamp }
     })
     setGpsStatus('locked')
+
+    // Accumulate surveyed distance while scanning; ignore jitter within the fix accuracy and GPS jumps
+    if (cameraActiveRef.current && accuracy <= POOR_ACCURACY_M) {
+      const survey = surveyRef.current
+      if (!survey.last) {
+        survey.last = { lat: latitude, lng: longitude }
+      } else {
+        const d = distanceMeters(survey.last.lat, survey.last.lng, latitude, longitude)
+        if (d > Math.max(accuracy, 3) && d < 200) {
+          survey.total += d
+          survey.last = { lat: latitude, lng: longitude }
+          setSurveyDistanceM(Math.round(survey.total))
+        }
+      }
+    }
   }, [])
 
   const startLocationWatch = useCallback(() => {
@@ -333,7 +418,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   // 3. Live Webcam & Camera Launcher
   // -------------------------------------------------------------
   const startCamera = useCallback(async () => {
+    // iOS only grants motion sensors from a user gesture: ask before the first await
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission().catch(() => {})
+    }
     setCameraError(null)
+    setScanEnded(false)
+    surveyRef.current.last = null
     stopCamera()
 
     if (!isSecure) {
@@ -407,6 +498,22 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     }
   }, [cameraActive])
 
+  // Track the phone's downward tilt for ground-plane measurement
+  useEffect(() => {
+    cameraActiveRef.current = cameraActive
+    if (!cameraActive) return
+    const onOrientation = (event) => {
+      const angle = window.screen?.orientation?.angle ?? window.orientation ?? 0
+      const pitch = pitchFromOrientation(event, angle)
+      if (pitch != null) {
+        pitchRef.current = pitch
+        setPitchSource('sensor')
+      }
+    }
+    window.addEventListener('deviceorientation', onOrientation)
+    return () => window.removeEventListener('deviceorientation', onOrientation)
+  }, [cameraActive])
+
   // Keep the screen awake during a drive scan
   useEffect(() => {
     if (!cameraActive || !('wakeLock' in navigator)) return
@@ -469,6 +576,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       if (!confirmed.length) return
       // Build entries now: the shared frame canvas is overwritten by the next tick
       const loc = resolveLocation(fix, auditId)
+      const roadClass = auditsRef.current.find((a) => String(a.id) === String(auditId))?.road_class ?? null
       const candidates = confirmed.map(({ track, det }) => ({
         id: newId(),
         trackId: track.id,
@@ -476,8 +584,15 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
         speedKmh: fix.speedKmh ?? null,
         confidence: Number(det.confidence),
         severity: det.severity,
-        depth_cm: Number(det.depth_cm),
-        risk_score: Number(det.risk_score),
+        depth_cm: det.depth_cm,
+        depthSource: 'estimated',
+        width_mm: det.width_mm,
+        area_m2: det.area_m2,
+        risk_score: det.risk_score,
+        riskLevel: det.risk_level,
+        actionPriority: det.action_priority,
+        measuredWith: pitchRef.current != null ? 'sensor' : 'assumed',
+        roadClass,
         area_ratio: Number(det.area_ratio || 0),
         box: det.box,
         polygon: Array.isArray(det.polygon) ? det.polygon : [],
@@ -552,7 +667,11 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
         if (!isMounted) return
 
-        const detections = Array.isArray(response?.detections) ? response.detections : []
+        const roadClass = auditsRef.current.find((a) => String(a.id) === String(auditId))?.road_class ?? null
+        const camera = { heightM: cameraHeightRef.current, pitchDeg: pitchRef.current ?? DEFAULT_PITCH_DEG }
+        const detections = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
+          enrichDetection(det, offscreenW, offscreenH, camera, fix.speedKmh, roadClass)
+        )
         setCurrentDetections(detections)
         setModelMode(response?.model_mode || '')
         setDetectError(null)
@@ -659,7 +778,56 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setSessionPotholes([])
     setCurrentDetections([])
     tracksRef.current = []
+    surveyRef.current = { last: null, total: 0 }
+    setSurveyDistanceM(0)
+    setScanEnded(false)
     setNotice(null)
+  }
+
+  // Stopping a scan shows the summary and the list of recorded potholes
+  const handleStopScan = () => {
+    stopCamera()
+    setScanEnded(true)
+    requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
+  const saveMeasuredDepth = (id) => {
+    const depthMm = Number(depthDraft)
+    if (!Number.isFinite(depthMm) || depthMm <= 0 || depthMm > 500) {
+      setNotice({ type: 'error', text: 'Enter the measured depth in millimetres (1-500).' })
+      return
+    }
+    setSessionPotholes((prev) =>
+      prev.map((p) => {
+        if (p.id !== id) return p
+        const cls = classifyEntry({ depthCm: depthMm / 10, widthMm: p.width_mm, speedKmh: p.speedKmh, roadClass: p.roadClass })
+        return { ...p, depth_cm: depthMm / 10, depthSource: 'measured', severity: cls.severity, risk_score: cls.sizeIndex, riskLevel: cls.riskLevel, actionPriority: cls.actionPriority }
+      })
+    )
+    setEditingDepthId(null)
+    setNotice(null)
+  }
+
+  const handleGenerateReport = async () => {
+    const target = openReportWindow()
+    setReportBusy(true)
+    try {
+      const audit = audits.find((a) => String(a.id) === String(selectedAuditId))
+      await openPotholeReport({
+        title: audit ? `Audit #${audit.id} · ${audit.location_name || 'Road audit'}` : 'Pothole scanner session',
+        subtitle: `Scan session · ${surveyDistanceM ? `${surveyDistanceM} m surveyed (GPS)` : 'surveyed distance not recorded'}`,
+        potholes: sessionPotholes.map(sessionEntryToReport),
+        survey: surveyDistanceM
+          ? { lengthM: surveyDistanceM, widthM: DEFAULT_CARRIAGEWAY_WIDTH_M, category: defaultCategoryForRoadClass(audit?.road_class) }
+          : null,
+        target,
+      })
+    } catch (err) {
+      target?.close()
+      setNotice({ type: 'error', text: `Could not create the report: ${err.message}` })
+    } finally {
+      setReportBusy(false)
+    }
   }
 
   const counts = {
@@ -668,6 +836,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     minor: sessionPotholes.filter((p) => p.severity === 'minor').length,
   }
   const unlocatedCount = sessionPotholes.filter((p) => p.locationSource !== 'gps').length
+  const essentialCount = sessionPotholes.filter((p) => p.actionPriority === 'Essential').length
 
   const gpsLabel = (() => {
     switch (gpsStatus) {
@@ -698,11 +867,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     return engine === 'device' ? 'On-device' : 'Server'
   })()
 
+  const RISK_TONE = { 'Very High': 'red', High: 'orange', Medium: 'amber' }
+
   return (
     <div className="pothole-scanner-root">
       <PageHeader
         title="Pothole scanner"
-        description="Point the camera at the road. Potholes are detected on this device, geotagged and sized."
+        description="Point the camera at the road. Potholes are detected on this device, sized per IRC:82-2015 and risk-rated per IRC:SP:88-2019."
       />
 
       {engineError && (
@@ -770,10 +941,10 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                   </button>
                   <button
                     type="button"
-                    onClick={stopCamera}
+                    onClick={handleStopScan}
                     className="hud-button hud-button-stop"
-                    aria-label="Stop camera"
-                    title="Stop camera"
+                    aria-label="Stop scan"
+                    title="Stop scan"
                   >
                     <IconStop className="size-5" />
                   </button>
@@ -786,9 +957,14 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
               <span className="flex size-14 items-center justify-center rounded-full bg-white/10 text-white">
                 <IconCamera className="size-7" />
               </span>
-              <h2 className="mt-4 text-lg font-semibold text-white">Camera is off</h2>
+              <h2 className="mt-4 text-lg font-semibold text-white">
+                {scanEnded ? 'Scan stopped' : 'Camera is off'}
+              </h2>
               <p className={`mt-1.5 text-sm ${cameraError ? 'text-red-300' : 'text-slate-300'}`}>
-                {cameraError || 'Start the camera, then hold your phone steady with the road in view.'}
+                {cameraError ||
+                  (scanEnded
+                    ? `${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'} recorded. Review them below or continue scanning.`
+                    : 'Start the camera, then hold your phone steady with the road in view.')}
               </p>
               <button
                 type="button"
@@ -797,7 +973,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 className="btn mt-5 bg-white px-5 py-3 text-slate-900 hover:bg-slate-100"
               >
                 <IconCamera className="size-4" />
-                Start camera
+                {scanEnded ? 'Continue scanning' : 'Start camera'}
               </button>
               {engine === 'loading' && <p className="mt-3 text-xs text-slate-400">{modelLabel}</p>}
             </div>
@@ -821,6 +997,24 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="mt-5">
+            <label htmlFor="pothole-height" className="field-label">Phone position</label>
+            <select
+              id="pothole-height"
+              value={cameraHeightM}
+              onChange={(e) => setCameraHeightM(Number(e.target.value))}
+              className="input mt-1.5"
+            >
+              {CAMERA_HEIGHTS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-500">
+              Used to measure pothole width and area. Tilt:{' '}
+              {pitchSource === 'sensor' ? 'from the motion sensor' : `assumed ${DEFAULT_PITCH_DEG}° (no motion sensor)`}.
+            </p>
           </div>
 
           <div className="mt-5">
@@ -861,13 +1055,16 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           </div>
 
           <div className="mt-5 grid grid-cols-3 gap-2 text-center">
-            {['severe', 'moderate', 'minor'].map((level) => (
+            {['minor', 'moderate', 'severe'].map((level) => (
               <div key={level} className="rounded-lg border border-slate-200 px-2 py-2">
                 <p className="text-lg font-bold tabular-nums text-slate-900">{counts[level]}</p>
-                <p className="text-xs capitalize text-slate-500">{level}</p>
+                <p className="text-xs text-slate-500">{IRC_CLASS_LABEL[level]}</p>
               </div>
             ))}
           </div>
+          <p className="mt-1.5 text-center text-xs text-slate-500">
+            IRC:82 size classes{surveyDistanceM ? ` · ${surveyDistanceM} m surveyed` : ''}
+          </p>
           {unlocatedCount > 0 && (
             <p className="mt-2 text-xs text-amber-700">
               {unlocatedCount} recorded without a live GPS fix (approximate or no location).
@@ -892,19 +1089,31 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       </div>
 
       {/* Recorded potholes */}
-      <section className="card mt-5 overflow-hidden">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Recorded potholes</h2>
+      <section ref={listRef} className="card mt-5 scroll-mt-20 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
+          <div className="min-w-0">
+            <h2 className="text-base font-semibold text-slate-900">
+              {scanEnded && sessionPotholes.length ? 'Scan summary' : 'Recorded potholes'}
+            </h2>
             <p className="mt-0.5 text-sm text-slate-500">
-              Recorded after {CONFIRM_FRAMES[engine === 'server' ? 'server' : 'device']} consecutive frames.
+              {sessionPotholes.length
+                ? `${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'}` +
+                  `${essentialCount ? ` · ${essentialCount} essential` : ''}` +
+                  `${surveyDistanceM ? ` · ${surveyDistanceM} m surveyed` : ''}`
+                : `Recorded after ${CONFIRM_FRAMES[engine === 'server' ? 'server' : 'device']} consecutive frames.`}
             </p>
           </div>
           {sessionPotholes.length > 0 && (
-            <button type="button" onClick={handleClearSession} className="btn btn-secondary px-3 py-1.5 text-xs">
-              <IconTrash className="size-3.5" />
-              Clear
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={handleGenerateReport} disabled={reportBusy} className="btn btn-primary px-3 py-2 text-sm">
+                <IconFileText className="size-4" />
+                {reportBusy ? 'Creating PDF…' : 'Generate PDF report'}
+              </button>
+              <button type="button" onClick={handleClearSession} className="btn btn-secondary px-3 py-2 text-sm">
+                <IconTrash className="size-4" />
+                Clear
+              </button>
+            </div>
           )}
         </div>
 
@@ -913,28 +1122,77 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
             No potholes recorded yet. Detections at or above {Math.round(confThreshold * 100)}% confidence appear here.
           </p>
         ) : (
-          <ul className="max-h-[28rem] divide-y divide-slate-100 overflow-y-auto">
+          <ul className="divide-y divide-slate-100">
             {[...sessionPotholes].reverse().map((item, idx) => (
-              <li key={item.id} className="flex items-center gap-3 px-4 py-3 sm:px-6">
-                {item.snapshot ? (
-                  <img src={item.snapshot} alt="" className="h-14 w-20 shrink-0 rounded-md border border-slate-200 object-cover" />
-                ) : (
-                  <div className="h-14 w-20 shrink-0 rounded-md bg-slate-100" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-sm font-medium text-slate-900">Pothole {sessionPotholes.length - idx}</span>
-                    <Badge tone={SEVERITY_TONE[item.severity]}>{item.severity}</Badge>
+              <li key={item.id} className="px-4 py-3 sm:px-6">
+                <div className="flex gap-3">
+                  {item.snapshot ? (
+                    <img src={item.snapshot} alt="" className="h-16 w-24 shrink-0 rounded-md border border-slate-200 object-cover" />
+                  ) : (
+                    <div className="h-16 w-24 shrink-0 rounded-md bg-slate-100" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="mr-1 text-sm font-medium text-slate-900">Pothole {sessionPotholes.length - idx}</span>
+                      <Badge tone={SEVERITY_TONE[item.severity]}>{IRC_CLASS_LABEL[item.severity]}</Badge>
+                      {item.riskLevel && <Badge tone={RISK_TONE[item.riskLevel]}>{item.riskLevel} risk</Badge>}
+                    </div>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Depth {item.depth_cm != null ? `${Math.round(item.depth_cm * 10)} mm` : 'N/A'}{' '}
+                      <span className="text-slate-400">({item.depthSource === 'measured' ? 'measured' : 'est.'})</span>
+                      {' · '}Width {item.width_mm != null ? `${item.width_mm} mm` : 'N/A'}
+                      {item.area_m2 != null && ` · ${item.area_m2} m²`}
+                    </p>
+                    <p className="mt-0.5 text-xs text-slate-600">
+                      Priority: <span className="font-medium text-slate-900">{item.actionPriority || '–'}</span>
+                      {' · '}{Math.round(item.confidence * 100)}% conf.
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-slate-500">
+                      {formatCoord(item.latitude, item.longitude)}
+                      {item.locationSource === 'gps' && item.gpsAccuracy != null && ` ±${item.gpsAccuracy} m`}
+                      {item.locationSource === 'audit_center' && <span className="font-sans text-amber-700"> (approx.)</span>}
+                    </p>
                   </div>
-                  <p className="mt-0.5 text-xs text-slate-600">
-                    Depth {item.depth_cm.toFixed(1)} cm · Risk {Math.round(item.risk_score)}/100 · {Math.round(item.confidence * 100)}% conf.
-                  </p>
-                  <p className="mt-0.5 truncate font-mono text-xs text-slate-500">
-                    {formatCoord(item.latitude, item.longitude)}
-                    {item.locationSource === 'gps' && item.gpsAccuracy != null && ` ±${item.gpsAccuracy} m`}
-                    {item.locationSource === 'audit_center' && <span className="font-sans text-amber-700"> (approx.)</span>}
-                  </p>
                 </div>
+
+                {editingDepthId === item.id ? (
+                  <form
+                    className="mt-2 flex items-center gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault()
+                      saveMeasuredDepth(item.id)
+                    }}
+                  >
+                    <label htmlFor={`depth-${item.id}`} className="sr-only">Measured depth in mm</label>
+                    <input
+                      id={`depth-${item.id}`}
+                      type="number"
+                      inputMode="decimal"
+                      min="1"
+                      max="500"
+                      autoFocus
+                      value={depthDraft}
+                      onChange={(event) => setDepthDraft(event.target.value)}
+                      placeholder="Depth in mm"
+                      className="input w-32 py-1.5"
+                    />
+                    <button type="submit" className="btn btn-primary px-3 py-1.5 text-xs">Save</button>
+                    <button type="button" onClick={() => setEditingDepthId(null)} className="btn btn-secondary px-3 py-1.5 text-xs">
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDepthId(item.id)
+                      setDepthDraft(item.depthSource === 'measured' && item.depth_cm != null ? String(Math.round(item.depth_cm * 10)) : '')
+                    }}
+                    className="mt-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    {item.depthSource === 'measured' ? 'Edit measured depth' : 'Enter measured depth'}
+                  </button>
+                )}
               </li>
             ))}
           </ul>

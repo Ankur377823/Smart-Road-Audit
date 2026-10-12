@@ -16,7 +16,9 @@ from app.schemas.pothole_schema import (
     PotholeSaveItem,
     PotholeSaveResponse,
 )
+from app.services.irc82 import classify_pothole
 from app.services.pothole_detector import PotholeDetector
+from app.services.sp88 import assess_risk
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,12 @@ async def save_potholes_to_audit(
     penalty = 0.0
     for idx, item in enumerate(new_items):
         snap_lat, snap_lng = snapped.get(idx, (None, None))
+        # Single source of truth for class and priority: IRC:82-2015 from depth and width
+        irc = classify_pothole(item.depth_cm * 10 if item.depth_cm is not None else None, item.width_mm)
+        if item.depth_cm is None and item.width_mm is None:
+            # Nothing measurable: keep the scanner's class rather than defaulting to "small"
+            irc = {**irc, "severity": item.severity or "moderate"}
+        risk = assess_risk(irc["severity"], item.speed_kmh, audit.road_class)
         rec = PotholeDetection(
             audit_id=payload.audit_id,
             client_id=item.client_id,
@@ -165,9 +173,14 @@ async def save_potholes_to_audit(
             location_source=item.location_source,
             gps_accuracy_m=item.gps_accuracy_m,
             confidence=item.confidence,
-            severity=item.severity,
+            severity=irc["severity"],
             depth_cm=item.depth_cm,
-            risk_score=item.risk_score,
+            depth_source=item.depth_source,
+            width_mm=item.width_mm,
+            area_m2=item.area_m2,
+            risk_level=risk["risk_level"],
+            action_priority=risk["priority"],
+            risk_score=irc["size_index"],
             area_ratio=item.area_ratio,
             geometry_json=item.geometry_json,
             snapshot_image=item.snapshot_image,
@@ -176,7 +189,7 @@ async def save_potholes_to_audit(
         )
         db.add(rec)
         records.append(rec)
-        penalty += SEVERITY_PENALTY[item.severity]
+        penalty += SEVERITY_PENALTY[irc["severity"]]
 
     # Adjust compliance score based on newly recorded potholes only
     if audit.compliance_score is not None and penalty > 0:

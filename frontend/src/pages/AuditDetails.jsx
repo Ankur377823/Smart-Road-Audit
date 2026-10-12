@@ -224,7 +224,13 @@ function AuditDetails() {
       </section>
 
       <div className="mb-6">
-        <PotholeReportCard auditId={auditId} onOpenScanner={(id) => navigate(`/scanner?auditId=${id || auditId}`)} />
+        <PotholeReportCard
+          auditId={auditId}
+          auditTitle={`Audit #${audit.id} · ${audit.location_name || "Road audit"}`}
+          roadClass={audit.road_class}
+          surveyLengthM={segments.reduce((sum, segment) => sum + (Number(segment.length_m) || 0), 0)}
+          onOpenScanner={(id) => navigate(`/scanner?auditId=${id || auditId}`)}
+        />
       </div>
 
       <Section className="mb-6" title="Road segments" description="Tap a segment to see how its risk score is built up.">

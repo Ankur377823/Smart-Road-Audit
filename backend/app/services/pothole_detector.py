@@ -28,7 +28,8 @@ try:
 except ImportError:
     Image = None
 
-from app.services.pothole_depth_estimator import estimate_pothole_depth_and_risk
+from app.services.irc82 import classify_pothole
+from app.services.pothole_depth_estimator import estimate_pothole_depth
 
 WEIGHTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "weights")
 MODEL_PATH = os.path.join(WEIGHTS_DIR, "best.pt")
@@ -171,20 +172,23 @@ class PotholeDetector:
                 if masks is not None and len(masks.xy) > i:
                     polygon = masks.xy[i].tolist()
 
-                # Depth, risk and severity come from the OpenCV cavity analysis, not model confidence
-                metrics = estimate_pothole_depth_and_risk(image, polygon, box)
+                metrics = estimate_pothole_depth(image, polygon, box)
                 if not metrics.get("is_valid_cavity", True):
                     filtered_non_road += 1
                     continue
+                # Server frames carry no camera geometry, so width is unknown: classify by depth only.
+                # The scanner reclassifies with measured width, and /save recomputes on the server.
+                depth_cm = metrics["depth_cm"]
+                irc = classify_pothole(depth_cm * 10 if depth_cm is not None else None, None)
 
                 detections.append({
                     "id": f"det-{int(time.time() * 1000)}-{i}",
                     "box": [round(coord, 2) for coord in box],
                     "polygon": [[round(pt[0], 1), round(pt[1], 1)] for pt in polygon],
                     "confidence": round(conf, 3),
-                    "severity": metrics["severity"],
-                    "depth_cm": metrics["depth_cm"],
-                    "risk_score": metrics["risk_score"],
+                    "severity": irc["severity"],
+                    "depth_cm": depth_cm,
+                    "risk_score": irc["size_index"],
                     "area_ratio": round((box_w * box_h) / float(width * height), 4),
                     "label": "pothole",
                 })
@@ -222,14 +226,15 @@ class PotholeDetector:
                 polygon.append([round(px, 1), round(py, 1)])
 
             area_ratio = round((2 * rx * 2 * ry) / (width * height), 4)
+            irc = classify_pothole(38.0, None)
             detections.append({
                 "id": f"demo-pothole-{int(now)}",
                 "box": [round(c, 1) for c in box],
                 "polygon": polygon,
                 "confidence": 0.88,
-                "severity": "moderate",
+                "severity": irc["severity"],
                 "depth_cm": 3.8,
-                "risk_score": 75.0,
+                "risk_score": irc["size_index"],
                 "area_ratio": area_ratio,
                 "label": "pothole",
             })

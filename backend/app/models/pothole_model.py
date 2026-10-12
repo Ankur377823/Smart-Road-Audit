@@ -81,21 +81,50 @@ class PotholeDetection(Base):
         nullable=False,
     )
 
-    # Severity classification: "minor", "moderate", "severe"
+    # IRC:82-2015 size class stored as "minor" (small), "moderate" (medium), "severe" (large)
     severity: Mapped[str] = mapped_column(
         String(50),
         default="moderate",
         nullable=False,
     )
 
-    # OpenCV Estimated Depth in Centimeters
-    depth_cm: Mapped[float] = mapped_column(
+    # Depth in centimetres (null when unknown)
+    depth_cm: Mapped[float | None] = mapped_column(
         Float,
-        default=0.0,
+        nullable=True,
+    )
+
+    # "estimated" (visual estimate from the image) or "measured" (entered by the auditor)
+    depth_source: Mapped[str] = mapped_column(
+        String(20),
+        default="estimated",
         nullable=False,
     )
 
-    # OpenCV Engineering Risk Score (0 - 100)
+    # Lateral width in millimetres and plan area in square metres, projected onto the road plane
+    width_mm: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    area_m2: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    # Road-safety risk per IRC:SP:88-2019 Table 4.2 ("Medium", "High", "Very High")
+    risk_level: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
+    )
+
+    # Recommendation priority per IRC:SP:88-2019 Table 4.3 ("Desirable", "Highly Desirable", "Essential")
+    action_priority: Mapped[str | None] = mapped_column(
+        String(30),
+        nullable=True,
+    )
+
+    # Size index (0 - 100) within the IRC:82-2015 classes, for sorting (see services/irc82.py)
     risk_score: Mapped[float] = mapped_column(
         Float,
         default=0.0,

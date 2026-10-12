@@ -7,12 +7,6 @@
 const CHAMFER_STRAIGHT = 3
 const CHAMFER_DIAGONAL = 4
 
-function severityFor(depthCm, riskScore) {
-  if (depthCm >= 5.0 || riskScore >= 70.0) return 'severe'
-  if (depthCm >= 2.8 || riskScore >= 40.0) return 'moderate'
-  return 'minor'
-}
-
 /** cv2.COLOR_RGB2GRAY fixed-point conversion */
 function toGray(rgba, width, x0, y0, w, h) {
   const gray = new Uint8Array(w * h)
@@ -85,7 +79,7 @@ function chamferDistance(w, h, isTarget) {
   return d
 }
 
-export function estimatePotholeDepthAndRisk(rgba, width, height, polygon, box) {
+export function estimatePotholeDepth(rgba, width, height, polygon, box) {
   let [x1, y1, x2, y2] = box.map((v) => Math.trunc(v))
   x1 = Math.max(0, x1)
   y1 = Math.max(0, y1)
@@ -94,21 +88,10 @@ export function estimatePotholeDepthAndRisk(rgba, width, height, polygon, box) {
 
   const boxW = Math.max(1, x2 - x1)
   const boxH = Math.max(1, y2 - y1)
-  const areaRatio = (boxW * boxH) / (width * height)
 
-  const yCenter = (y1 + y2) / 2
-  const yNorm = Math.min(1.0, Math.max(0.2, yCenter / height))
-
+  // Without a segmentation outline there is nothing to analyse: depth is unknown, not guessed
   if (!polygon || polygon.length < 3) {
-    const depth = Math.round(Math.min(12.0, Math.max(1.5, areaRatio * 70.0 * yNorm + 2.0)) * 10) / 10
-    const risk = Math.min(98.0, Math.max(15.0, depth * 8.5 + areaRatio * 400.0))
-    return {
-      depth_cm: depth,
-      risk_score: Math.round(risk * 10) / 10,
-      severity: depth >= 5.0 ? 'severe' : depth >= 2.5 ? 'moderate' : 'minor',
-      roughness_index: 0.5,
-      is_valid_cavity: true,
-    }
+    return { depth_cm: null, is_valid_cavity: true }
   }
 
   // Elliptical kernel of diameter k: erode once (radius r), dilate twice (radius 2r)
@@ -123,7 +106,7 @@ export function estimatePotholeDepthAndRisk(rgba, width, height, polygon, box) {
   const ry1 = Math.min(height, y2 + margin)
   const w = rx1 - rx0
   const h = ry1 - ry0
-  if (w <= 0 || h <= 0) return estimatePotholeDepthAndRisk(rgba, width, height, [], box)
+  if (w <= 0 || h <= 0) return estimatePotholeDepth(rgba, width, height, [], box)
 
   const gray = toGray(rgba, width, rx0, ry0, w, h)
   const mask = fillPolygon(polygon, rx0, ry0, w, h)
@@ -187,23 +170,17 @@ export function estimatePotholeDepthAndRisk(rgba, width, height, polygon, box) {
   const laplacianVar = lapCount ? lapSqSum / lapCount - (lapSum / lapCount) ** 2 : 100.0
   const normalizedRoughness = Math.min(1.0, Math.log1p(Math.max(0, laplacianVar)) / 8.0)
 
-  // 3. Depth (cm) calibration: shadow falloff + texture roughness + area
-  const computedDepth = intensityDepression * 8.0 + normalizedRoughness * 3.5 + Math.min(0.2, areaRatio) * 25.0
-  const depthCm = Math.round(Math.min(15.0, Math.max(1.2, computedDepth)) * 10) / 10
-
-  // 4. Composite risk score (0 - 100)
-  const depthFactor = (depthCm / 12.0) * 55.0
-  const areaFactor = Math.min(30.0, (areaRatio / 0.08) * 30.0)
-  const roughnessFactor = normalizedRoughness * 15.0
-  const riskScore = Math.round(Math.min(99.0, Math.max(10.0, depthFactor + areaFactor + roughnessFactor)) * 10) / 10
+  // 3. Visual depth estimate (cm) from shadow falloff and texture roughness. Image area is deliberately
+  // not used: it depends on distance from the camera, not on depth. Severity and priority are assigned
+  // from IRC:82-2015 classes elsewhere (irc82.js), using this estimate together with the measured width.
+  const computedDepth = intensityDepression * 8.0 + normalizedRoughness * 3.5
+  const depthCm = Math.round(Math.min(15.0, Math.max(1.0, computedDepth)) * 10) / 10
 
   // A pothole must be a depression: a noticeably brighter interior is not a cavity
   const isValidCavity = !(outerMean > 15.0 && innerMean > outerMean * 1.15)
 
   return {
     depth_cm: depthCm,
-    risk_score: riskScore,
-    severity: severityFor(depthCm, riskScore),
     roughness_index: Math.round(normalizedRoughness * 100) / 100,
     intensity_depression: Math.round(intensityDepression * 1000) / 1000,
     is_valid_cavity: isValidCavity,

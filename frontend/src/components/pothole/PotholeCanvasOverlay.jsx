@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { IRC_CLASS_LABEL } from '../../ml/pothole/irc82'
 
 /**
  * Renders real-time YOLO segmentation masks and bounding boxes onto an HTML5 canvas overlay.
@@ -83,7 +84,7 @@ function PotholeCanvasOverlay({ detections = [], frameWidth = 640, frameHeight =
         ctx.stroke()
 
         // Draw Real-time Pothole Detection Label Chip
-        const labelText = `POTHOLE ${(Number(confidence || 0) * 100).toFixed(0)}%`
+        const labelText = `${(IRC_CLASS_LABEL[severity] || 'Pothole').toUpperCase()} ${(Number(confidence || 0) * 100).toFixed(0)}%`
         ctx.font = 'bold 12px Inter, system-ui, sans-serif'
         const textWidth = ctx.measureText(labelText).width
         const padding = 6

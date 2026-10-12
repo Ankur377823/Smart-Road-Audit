@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 Severity = Literal["minor", "moderate", "severe"]
 LocationSource = Literal["gps", "audit_center", "none"]
@@ -22,7 +22,7 @@ class DetectionItem(BaseModel):
     polygon: list[list[float]] = Field(default_factory=list, description="List of [x, y] polygon vertices for segmentation mask")
     confidence: float
     severity: Severity
-    depth_cm: float
+    depth_cm: float | None = None
     risk_score: float
     area_ratio: float = 0.0
     label: str = "pothole"
@@ -53,9 +53,13 @@ class PotholeSaveItem(BaseModel):
     location_source: LocationSource = "gps"
     gps_accuracy_m: float | None = Field(None, ge=0)
     confidence: float = Field(..., ge=0, le=1)
-    severity: Severity
-    depth_cm: float = Field(..., ge=0)
-    risk_score: float = Field(..., ge=0, le=100)
+    # Severity and risk_score are recomputed on the server from depth and width (IRC:82-2015)
+    severity: Severity | None = None
+    depth_cm: float | None = Field(None, ge=0, le=100)
+    depth_source: Literal["estimated", "measured"] = "estimated"
+    width_mm: float | None = Field(None, ge=0, le=20000)
+    area_m2: float | None = Field(None, ge=0, le=100)
+    risk_score: float | None = Field(None, ge=0, le=100)
     area_ratio: float = Field(0.0, ge=0, le=1)
     geometry_json: str | None = None
     snapshot_image: str | None = Field(None, max_length=MAX_SNAPSHOT_BASE64_CHARS)
@@ -82,13 +86,25 @@ class PotholeRecordResponse(BaseModel):
     gps_accuracy_m: float | None = None
     confidence: float
     severity: str
-    depth_cm: float = 0.0
+    depth_cm: float | None = None
+    depth_source: str = "estimated"
+    width_mm: float | None = None
+    area_m2: float | None = None
+    risk_level: str | None = None
+    action_priority: str | None = None
     risk_score: float = 0.0
     area_ratio: float
     geometry_json: str | None
     snapshot_image: str | None
     speed_kmh: float | None
     detected_at: datetime
+
+    @field_validator("detected_at")
+    @classmethod
+    def _assume_utc(cls, value: datetime) -> datetime:
+        # Timestamps are stored in UTC; columns without time zone return naive values, which
+        # browsers would otherwise read as local time
+        return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
 
 
 class AuditPotholesSummary(BaseModel):
