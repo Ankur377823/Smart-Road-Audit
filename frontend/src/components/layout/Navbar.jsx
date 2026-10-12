@@ -1,161 +1,120 @@
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+
+import { IconClose, IconLogout, IconMenu, IconPlus } from "../common/Icons";
+
+const NAV_ITEMS = [
+  { to: "/dashboard", label: "Dashboard", match: (path) => path === "/dashboard" },
+  { to: "/audits", label: "Audits", match: (path) => path.startsWith("/audits") && path !== "/audits/create" },
+  { to: "/scanner", label: "Pothole scanner", match: (path) => path === "/scanner" || path === "/potholes/scan" },
+];
+
+export function BrandMark({ to = "/dashboard" }) {
+  return (
+    <Link to={to} className="flex items-center gap-2.5" aria-label="SmartRoad Audit home">
+      <span className="flex size-8 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold tracking-tight text-white">
+        SR
+      </span>
+      <span className="text-base font-semibold tracking-tight text-slate-900">
+        SmartRoad <span className="font-normal text-slate-500">Audit</span>
+      </span>
+    </Link>
+  );
+}
 
 function Navbar() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close the mobile menu after navigating
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [location.pathname]);
+
+  const linkProps = (item, base, active, idle) => {
+    const isActive = item.match(location.pathname);
+    return {
+      to: item.to,
+      "aria-current": isActive ? "page" : undefined,
+      className: `${base} ${isActive ? active : idle}`,
+    };
+  };
 
   return (
-    <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:h-16 sm:px-6">
+        <BrandMark />
 
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-6">
+        <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+          {NAV_ITEMS.map((item) => (
+            <Link
+              key={item.to}
+              {...linkProps(
+                item,
+                "rounded-lg px-3 py-2 text-sm font-medium transition",
+                "bg-slate-100 text-slate-900",
+                "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              )}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </nav>
 
-        {/* ==================================================
-            LOGO
-        ================================================== */}
-
-        <button
-          type="button"
-          onClick={() => navigate("/dashboard")}
-          className="flex items-center gap-3"
-        >
-
-          <div className="flex size-9 items-center justify-center rounded-xl bg-slate-900 text-sm font-bold text-white">
-            SR
-          </div>
-
-          <div className="hidden text-left sm:block">
-
-            <p className="text-sm font-bold tracking-tight text-slate-900">
-              SmartRoad
-            </p>
-
-            <p className="text-[10px] font-medium uppercase tracking-wider text-slate-400">
-              Audit System
-            </p>
-
-          </div>
-
-        </button>
-
-        {/* ==================================================
-            NAVIGATION
-        ================================================== */}
-
-        <div className="hidden items-center gap-1 md:flex">
-
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            Dashboard
+        <div className="hidden items-center gap-2 md:flex">
+          <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
+            <IconPlus className="size-4" />
+            New audit
           </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/audits")}
-            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-          >
-            Audit History
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/scanner")}
-            className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3.5 py-2 text-sm font-semibold text-sky-700 transition hover:bg-sky-500/20"
-          >
-            Pothole Scanner
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              navigate("/audits/create")
-            }
-            className="ml-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
-          >
-            + New Audit
-          </button>
-
-        </div>
-
-        {/* ==================================================
-            USER AREA
-        ================================================== */}
-
-        <div className="flex items-center gap-3">
-
-          <div className="hidden text-right sm:block">
-
-            <p className="text-sm font-semibold text-slate-800">
-              Audit User
-            </p>
-
-            <p className="text-xs text-slate-400">
-              Road Safety Analyst
-            </p>
-
-          </div>
-
           <button
             type="button"
             onClick={() => navigate("/login")}
-            className="flex size-9 items-center justify-center rounded-full bg-blue-50 text-sm font-bold text-blue-600 transition hover:bg-blue-100"
-            title="Account"
+            className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            title="Sign out"
+            aria-label="Sign out"
           >
-            U
+            <IconLogout className="size-5" />
           </button>
-
         </div>
 
+        <button
+          type="button"
+          onClick={() => setMenuOpen((open) => !open)}
+          className="-mr-2 rounded-lg p-2 text-slate-700 transition hover:bg-slate-100 md:hidden"
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={menuOpen}
+          aria-controls="mobile-menu"
+        >
+          {menuOpen ? <IconClose className="size-6" /> : <IconMenu className="size-6" />}
+        </button>
       </div>
 
-      {/* ==================================================
-          MOBILE NAVIGATION
-      ================================================== */}
-
-      <div className="border-t border-slate-100 px-6 py-2 md:hidden">
-
-        <div className="flex items-center gap-2 overflow-x-auto">
-
-          <button
-            type="button"
-            onClick={() => navigate("/dashboard")}
-            className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Dashboard
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/audits")}
-            className="shrink-0 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
-          >
-            History
-          </button>
-
-          <button
-            type="button"
-            onClick={() => navigate("/scanner")}
-            className="shrink-0 rounded-lg bg-sky-500/15 text-sky-700 px-3 py-2 text-sm font-semibold"
-          >
-            Pothole Scanner
-          </button>
-
-          <button
-            type="button"
-            onClick={() =>
-              navigate("/audits/create")
-            }
-            className="shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white"
-          >
-            + New Audit
-          </button>
-
-        </div>
-
-      </div>
-
-    </nav>
+      {menuOpen && (
+        <nav id="mobile-menu" className="border-t border-slate-200 bg-white px-4 pb-4 pt-2 shadow-sm md:hidden" aria-label="Main">
+          <div className="flex flex-col gap-1">
+            {NAV_ITEMS.map((item) => (
+              <Link
+                key={item.to}
+                {...linkProps(item, "rounded-lg px-3 py-3 text-base font-medium", "bg-slate-100 text-slate-900", "text-slate-700")}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-200 pt-3">
+            <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
+              <IconPlus className="size-4" />
+              New audit
+            </button>
+            <button type="button" onClick={() => navigate("/login")} className="btn btn-secondary">
+              <IconLogout className="size-4" />
+              Sign out
+            </button>
+          </div>
+        </nav>
+      )}
+    </header>
   );
 }
 

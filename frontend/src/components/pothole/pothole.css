@@ -1,311 +1,148 @@
-/* -------------------------------------------------------------
-   Standalone Pothole Detection & HUD Styles
-   ------------------------------------------------------------- */
+/* Pothole scanner: camera viewfinder and its overlay controls (the rest uses Tailwind + index.css) */
 
 .pothole-scanner-root {
-  position: relative;
   width: 100%;
-  max-width: 1280px;
-  margin: 0 auto;
-  min-height: 80vh;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-  color: #f8fafc;
 }
 
-.scanner-viewfinder-card {
+.scanner-viewfinder {
   position: relative;
-  width: 100%;
-  border-radius: 1.25rem;
-  overflow: hidden;
-  background: #030712;
-  border: 1px solid rgba(56, 189, 248, 0.25);
-  box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 30px rgba(56, 189, 248, 0.1);
-  aspect-ratio: 16 / 9;
-  min-height: 480px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: #0b1220;
+  aspect-ratio: 3 / 4;
+  max-height: 72vh;
+  max-height: 72dvh;
 }
 
-@media (max-width: 768px) {
-  .scanner-viewfinder-card {
+@media (min-width: 640px) {
+  .scanner-viewfinder {
     aspect-ratio: 4 / 3;
-    min-height: 360px;
   }
 }
 
-@media (max-width: 640px) {
-  .pothole-scanner-root {
-    gap: 1rem;
-  }
-  .scanner-viewfinder-card {
-    aspect-ratio: 3 / 4;
-    min-height: 320px;
-    border-radius: 1rem;
-  }
-  .scanner-hud-top {
-    top: 0.6rem;
-    left: 0.6rem;
-    right: 0.6rem;
-    gap: 0.4rem;
-  }
-  .scanner-hud-bottom {
-    bottom: 0.6rem;
-    left: 0.6rem;
-    right: 0.6rem;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
-  .hud-badge {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.72rem;
-  }
-  .scanner-ctrl-btn {
-    padding: 0.45rem 0.85rem;
-    font-size: 0.8rem;
+@media (min-width: 1024px) {
+  .scanner-viewfinder {
+    aspect-ratio: 16 / 10;
+    max-height: none;
   }
 }
 
-.scanner-video-feed {
+.scanner-video-feed,
+.scanner-canvas-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.scanner-video-feed {
   z-index: 1;
 }
 
 .scanner-canvas-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
   z-index: 10;
-  object-fit: cover;
+  pointer-events: none;
 }
 
-/* Scanner HUD Overlay Layers */
-.scanner-hud-top {
+.scanner-hud-top,
+.scanner-hud-bottom {
   position: absolute;
-  top: 1rem;
-  left: 1rem;
-  right: 1rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 20;
   display: flex;
   justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.scanner-hud-top {
+  top: 0.75rem;
   align-items: flex-start;
-  z-index: 20;
   pointer-events: none;
 }
 
 .scanner-hud-bottom {
-  position: absolute;
-  bottom: 1rem;
-  left: 1rem;
-  right: 1rem;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  z-index: 20;
+  bottom: 0.75rem;
+  align-items: center;
 }
 
-.hud-badge {
+.hud-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.4rem 0.85rem;
+  gap: 0.4rem;
+  max-width: 100%;
   border-radius: 9999px;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.025em;
-  color: #f1f5f9;
-  pointer-events: auto;
-}
-
-.hud-badge.live {
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #fca5a5;
-}
-
-.pulse-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #ef4444;
-  box-shadow: 0 0 10px #ef4444;
-  animation: pulse-glow 1.5s infinite;
-}
-
-@keyframes pulse-glow {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(1.3); }
-}
-
-.scanner-reticle {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 140px;
-  height: 140px;
-  border: 1px dashed rgba(56, 189, 248, 0.35);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 15;
-}
-
-.scanner-reticle::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -15px;
-  right: -15px;
-  height: 1px;
-  background: rgba(56, 189, 248, 0.2);
-}
-
-.scanner-reticle::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: -15px;
-  bottom: -15px;
-  width: 1px;
-  background: rgba(56, 189, 248, 0.2);
-}
-
-/* Control Buttons */
-.scanner-ctrl-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.6rem 1.25rem;
-  border-radius: 0.75rem;
-  background: rgba(15, 23, 42, 0.85);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: #f8fafc;
-  font-size: 0.875rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.scanner-ctrl-btn:hover {
-  background: rgba(30, 41, 59, 0.95);
-  border-color: rgba(56, 189, 248, 0.6);
-  box-shadow: 0 0 15px rgba(56, 189, 248, 0.2);
-}
-
-.scanner-ctrl-btn.primary {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
-  border-color: #38bdf8;
-  color: #ffffff;
-}
-
-.scanner-ctrl-btn.primary:hover {
-  background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
-  box-shadow: 0 0 20px rgba(56, 189, 248, 0.4);
-}
-
-/* Standalone Detection Cards & Feeds */
-.detection-item-card {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
-  border-radius: 0.85rem;
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  transition: transform 0.15s ease;
-}
-
-.detection-item-card:hover {
-  transform: translateY(-2px);
-  border-color: rgba(56, 189, 248, 0.3);
-}
-
-.severity-pill {
-  display: inline-block;
+  background: rgba(15, 23, 42, 0.72);
+  padding: 0.3rem 0.7rem;
+  color: #fff;
   font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  padding: 0.25rem 0.65rem;
+  font-weight: 600;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+.live-dot {
+  width: 0.5rem;
+  height: 0.5rem;
   border-radius: 9999px;
-  letter-spacing: 0.05em;
+  background: #ef4444;
+  animation: live-pulse 1.6s ease-in-out infinite;
 }
 
-.severity-pill.severe {
-  background: rgba(239, 68, 68, 0.18);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.4);
+@keyframes live-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 
-.severity-pill.moderate {
-  background: rgba(245, 158, 11, 0.18);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.4);
+/* 44px touch targets */
+.hud-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 9999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: background 0.15s ease;
 }
 
-.severity-pill.minor {
-  background: rgba(16, 185, 129, 0.18);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.4);
+.hud-button:hover {
+  background: rgba(15, 23, 42, 0.9);
 }
 
-/* Report Section Gallery */
-.pothole-report-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.25rem;
-  margin-top: 1.25rem;
+.hud-button-stop {
+  background: rgba(220, 38, 38, 0.85);
 }
 
-.pothole-evidence-card {
-  position: relative;
-  background: rgba(15, 23, 42, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 1rem;
-  overflow: hidden;
-  transition: border-color 0.2s ease, transform 0.2s ease;
-}
-
-.pothole-evidence-card:hover {
-  border-color: rgba(56, 189, 248, 0.4);
-  transform: translateY(-3px);
-}
-
-.pothole-thumb-wrap {
-  position: relative;
-  width: 100%;
-  height: 160px;
-  background: #020617;
-  overflow: hidden;
-}
-
-.pothole-thumb {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.hud-button-stop:hover {
+  background: rgb(220, 38, 38);
 }
 
 .pothole-map {
   width: 100%;
-  height: 320px;
-  border-radius: 0.75rem;
+  height: 300px;
   overflow: hidden;
-  border: 1px solid rgba(51, 65, 85, 0.8);
+  border-radius: 0.75rem;
+  border: 1px solid #e2e8f0;
 }
 
 @media (max-width: 640px) {
   .pothole-map {
-    height: 240px;
+    height: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
   }
 }

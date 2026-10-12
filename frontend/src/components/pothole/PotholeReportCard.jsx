@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { getAuditPotholes } from '../../services/potholeApi'
 import { GOOGLE_MAP_ID, loadGoogleMaps } from '../../services/googleMaps'
 import { formatCoord } from './geo'
+import { SEVERITY_TONE } from './severity'
+import { Badge, Section } from '../common/ui'
+import { IconClose, IconScan } from '../common/Icons'
 import './pothole.css'
 
 const SEVERITY_PIN = {
@@ -73,16 +76,16 @@ function PotholeMap({ potholes }) {
 
   if (!hasLocated) {
     return (
-      <div className="mt-5 rounded-xl border border-dashed border-slate-800 p-4 text-center text-xs text-slate-500">
+      <p className="mt-5 rounded-lg border border-dashed border-slate-300 p-4 text-center text-xs text-slate-500">
         No geotagged potholes to map.
-      </div>
+      </p>
     )
   }
 
   return error ? (
-    <div className="mt-5 rounded-xl border border-slate-800 p-4 text-center text-xs text-slate-500">
+    <p className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 text-center text-xs text-slate-500">
       Map unavailable: {error}
-    </div>
+    </p>
   ) : (
     <div ref={mapRef} className="pothole-map mt-5" role="region" aria-label="Map of detected potholes" />
   )
@@ -103,145 +106,113 @@ function PotholeReportCard({ auditId, onOpenScanner = () => {} }) {
       .finally(() => setLoading(false))
   }, [auditId])
 
-  if (loading) {
-    return (
-      <div className="dashboard-panel mt-6 text-sm text-slate-400">
-        Loading pavement pothole records...
-      </div>
-    )
-  }
-
   const potholes = data?.detections || []
 
   return (
-    <div className="dashboard-panel mt-6">
-      {/* Header & Quick Action */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🕳️</span>
-            <h3 className="text-xl font-bold text-white">Pothole & Surface Distress Report</h3>
-          </div>
-          <p className="text-xs text-slate-400 mt-1">
-            YOLO AI Computer Vision screening for Audit #{auditId}
-          </p>
-        </div>
-
-        <button
-          onClick={() => onOpenScanner(auditId)}
-          className="scanner-ctrl-btn primary text-xs"
-        >
-          📷 Open Live Pothole Scanner
+    <Section
+      title="Potholes"
+      description="Surface defects recorded with the pothole scanner."
+      actions={
+        <button type="button" onClick={() => onOpenScanner(auditId)} className="btn btn-secondary">
+          <IconScan className="size-4" />
+          Scan potholes
         </button>
-      </div>
-
-      {/* Breakdown Metrics */}
-      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3">
-          <p className="text-xs text-slate-400">Total Recorded</p>
-          <p className="mt-1 text-2xl font-bold text-white">{data?.total_potholes || 0}</p>
-        </div>
-        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3">
-          <p className="text-xs text-rose-300">Severe</p>
-          <p className="mt-1 text-2xl font-bold text-rose-400">{data?.severe_count || 0}</p>
-        </div>
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-          <p className="text-xs text-amber-300">Moderate</p>
-          <p className="mt-1 text-2xl font-bold text-amber-400">{data?.moderate_count || 0}</p>
-        </div>
-        <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3">
-          <p className="text-xs text-emerald-300">Minor</p>
-          <p className="mt-1 text-2xl font-bold text-emerald-400">{data?.minor_count || 0}</p>
-        </div>
-      </div>
-
-      {potholes.length > 0 && <PotholeMap potholes={potholes} />}
-
-      {/* Snapshots Evidence Gallery */}
-      {potholes.length === 0 ? (
-        <div className="mt-6 rounded-xl border border-dashed border-slate-800 p-8 text-center">
-          <p className="text-sm text-slate-400">No potholes currently logged for this audit.</p>
-          <button
-            onClick={() => onOpenScanner(auditId)}
-            className="mt-4 text-xs font-semibold text-sky-400 hover:text-sky-300"
-          >
-            + Start a camera drive scan to detect potholes →
-          </button>
-        </div>
+      }
+    >
+      {loading ? (
+        <p className="px-6 py-10 text-center text-sm text-slate-500">Loading pothole records…</p>
       ) : (
-        <div className="pothole-report-grid">
-          {potholes.map((item, index) => (
-            <div key={item.id || index} className="pothole-evidence-card">
-              <div
-                className="pothole-thumb-wrap cursor-pointer"
-                onClick={() => item.snapshot_image && setPreviewImage(item.snapshot_image)}
-              >
-                {item.snapshot_image ? (
-                  <img
-                    src={item.snapshot_image}
-                    alt={`Pothole detection #${index + 1}`}
-                    className="pothole-thumb"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center bg-slate-900 text-xs text-slate-500">
-                    No snapshot recorded
-                  </div>
-                )}
-                <div className="absolute top-2 right-2">
-                  <span className={`severity-pill ${item.severity}`}>{item.severity}</span>
-                </div>
+        <div className="p-4 sm:p-6">
+          <div className="grid grid-cols-4 gap-2 text-center">
+            {[
+              ['Total', data?.total_potholes],
+              ['Severe', data?.severe_count],
+              ['Moderate', data?.moderate_count],
+              ['Minor', data?.minor_count],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg bg-slate-50 p-3">
+                <p className="text-xl font-bold tabular-nums text-slate-900">{value || 0}</p>
+                <p className="text-xs text-slate-500">{label}</p>
               </div>
+            ))}
+          </div>
 
-              <div className="p-3">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-semibold text-slate-200">Incident #{index + 1}</span>
-                  <span className="text-slate-400 font-mono">
-                    {(item.confidence * 100).toFixed(0)}% conf
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center justify-between text-[11px]">
-                  <span className="font-semibold text-amber-300">
-                    Depth: {item.depth_cm != null ? `${Number(item.depth_cm).toFixed(1)} cm` : 'N/A'}
-                  </span>
-                  <span className="font-mono text-sky-400">
-                    Risk: {item.risk_score != null ? `${Math.round(item.risk_score)}/100` : 'N/A'}
-                  </span>
-                </div>
-                <div className="mt-1 text-[11px] text-slate-400 font-mono">
-                  📍 {formatCoord(item.snapped_latitude ?? item.latitude, item.snapped_longitude ?? item.longitude)}
-                  {item.location_source === 'gps' && item.gps_accuracy_m != null && ` ±${Math.round(item.gps_accuracy_m)}m`}
-                  {item.location_source === 'audit_center' && (
-                    <span className="text-amber-300"> (approx.)</span>
-                  )}
-                </div>
-                <div className="mt-1 text-[10px] text-slate-500">
-                  {new Date(item.detected_at).toLocaleString()} • Speed:{' '}
-                  {item.speed_kmh != null ? `${Math.round(item.speed_kmh)} km/h` : 'N/A'}
-                </div>
-              </div>
-            </div>
-          ))}
+          {potholes.length === 0 ? (
+            <p className="mt-5 rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+              No potholes recorded for this audit yet. Use the scanner while driving or walking the route.
+            </p>
+          ) : (
+            <>
+              <PotholeMap potholes={potholes} />
+
+              <ul className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {potholes.map((item, index) => (
+                  <li key={item.id || index} className="overflow-hidden rounded-lg border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => item.snapshot_image && setPreviewImage(item.snapshot_image)}
+                      disabled={!item.snapshot_image}
+                      className="relative block h-36 w-full bg-slate-100"
+                      aria-label={item.snapshot_image ? `View photo of pothole ${potholes.length - index}` : undefined}
+                    >
+                      {item.snapshot_image ? (
+                        <img src={item.snapshot_image} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <span className="text-xs text-slate-400">No photo</span>
+                      )}
+                      <span className="absolute right-2 top-2">
+                        <Badge tone={SEVERITY_TONE[item.severity]}>{item.severity}</Badge>
+                      </span>
+                    </button>
+                    <div className="p-3 text-xs text-slate-600">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-medium text-slate-900">Pothole {potholes.length - index}</span>
+                        <span>{Math.round(item.confidence * 100)}% conf.</span>
+                      </div>
+                      <p className="mt-1">
+                        Depth {item.depth_cm != null ? `${Number(item.depth_cm).toFixed(1)} cm` : 'N/A'} · Risk{' '}
+                        {item.risk_score != null ? `${Math.round(item.risk_score)}/100` : 'N/A'}
+                      </p>
+                      <p className="mt-1 truncate font-mono text-slate-500">
+                        {formatCoord(item.snapped_latitude ?? item.latitude, item.snapped_longitude ?? item.longitude)}
+                        {item.location_source === 'gps' && item.gps_accuracy_m != null && ` ±${Math.round(item.gps_accuracy_m)} m`}
+                        {item.location_source === 'audit_center' && <span className="font-sans text-amber-700"> (approx.)</span>}
+                      </p>
+                      <p className="mt-1 text-slate-500">
+                        {new Date(item.detected_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {item.speed_kmh != null && ` · ${Math.round(item.speed_kmh)} km/h`}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       )}
 
-      {/* Lightbox Modal for snapshot preview */}
       {previewImage && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4"
           onClick={() => setPreviewImage(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Pothole photo"
         >
-          <div className="relative max-w-3xl overflow-hidden rounded-2xl border border-slate-700 bg-slate-950 p-2 shadow-2xl">
-            <img src={previewImage} alt="Pothole Full Zoom" className="max-h-[80vh] w-auto rounded-xl" />
+          <div className="relative">
+            <img src={previewImage} alt="Pothole" className="max-h-[80vh] w-auto rounded-lg" />
             <button
+              type="button"
               onClick={() => setPreviewImage(null)}
-              className="absolute top-4 right-4 rounded-full bg-slate-900/80 px-3 py-1 text-xs font-bold text-white hover:bg-slate-800"
+              className="absolute right-2 top-2 rounded-full bg-slate-900/80 p-2 text-white hover:bg-slate-900"
+              aria-label="Close photo"
             >
-              ✕ Close
+              <IconClose className="size-4" />
             </button>
           </div>
         </div>
       )}
-    </div>
+    </Section>
   )
 }
 

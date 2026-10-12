@@ -1,212 +1,88 @@
-import { useLayoutEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import gsap from "gsap";
+import { Link } from "react-router-dom";
+
+import { BrandMark } from "../components/layout/Navbar";
+import { IconArrowRight, IconCheck, IconRoad, IconScan, IconShield } from "../components/common/Icons";
+
+const FEATURES = [
+  {
+    icon: IconRoad,
+    title: "Risk screening",
+    description: "Split a road network into segments and score each one on gradient, curves, speed, traffic and pedestrians.",
+  },
+  {
+    icon: IconScan,
+    title: "Pothole detection",
+    description: "Scan the road with a phone camera. Potholes are detected on the device, geotagged and sized.",
+  },
+  {
+    icon: IconShield,
+    title: "IRC checklist",
+    description: "Get an audit checklist that flags what passes, what fails and what needs a site visit.",
+  },
+];
 
 function Landing() {
-  const navigate = useNavigate();
-  const heroRef = useRef(null);
-
-  useLayoutEffect(() => {
-    const context = gsap.context(() => {
-      const timeline = gsap.timeline({
-        defaults: {
-          ease: "power3.out",
-        },
-      });
-
-      timeline
-        .from(".terminal-nav", {
-          y: -18,
-          opacity: 0,
-          duration: 0.7,
-        })
-        .from(
-          ".terminal-log-line",
-          {
-            x: -24,
-            opacity: 0,
-            stagger: 0.16,
-            duration: 0.55,
-          },
-          "-=0.2"
-        )
-        .from(
-          ".terminal-title",
-          {
-            scale: 0.94,
-            opacity: 0,
-            duration: 0.9,
-          },
-          "-=0.1"
-        )
-        .from(
-          ".terminal-title strong",
-          {
-            letterSpacing: "0.5em",
-            opacity: 0,
-            duration: 0.7,
-          },
-          "-=0.45"
-        )
-        .from(
-          ".terminal-grid",
-          {
-            opacity: 0,
-            x: 35,
-            duration: 1.1,
-          },
-          "-=0.8"
-        )
-        .from(
-          ".terminal-start, .terminal-status",
-          {
-            y: 12,
-            opacity: 0,
-            duration: 0.5,
-          },
-          "-=0.55"
-        );
-
-      gsap.to(".status-spinner", {
-        rotate: 360,
-        duration: 1.8,
-        repeat: -1,
-        ease: "none",
-      });
-
-      gsap.to(".terminal-line", {
-        opacity: 0.55,
-        duration: 1.4,
-        repeat: -1,
-        yoyo: true,
-        ease: "sine.inOut",
-      });
-    }, heroRef);
-
-    return () => context.revert();
-  }, []);
-
-  function openLogin() {
-    navigate("/login");
-  }
-
   return (
-    <main
-      ref={heroRef}
-      className="terminal-hero min-h-screen overflow-hidden text-slate-100"
-    >
-      {/* Background grid */}
-      <div
-        className="terminal-grid"
-        aria-hidden="true"
-      />
+    <div className="flex min-h-screen flex-col bg-white">
+      <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
+        <BrandMark to="/" />
+        <Link to="/login" className="text-sm font-semibold text-slate-700 hover:text-slate-900">
+          Sign in
+        </Link>
+      </header>
 
-      {/* =====================================================
-          NAVBAR
-      ===================================================== */}
-
-      <nav className="terminal-nav">
-
-        <button
-          type="button"
-          onClick={() => navigate("/")}
-          className="terminal-brand"
-          aria-label="SmartRoad home"
-        >
-          <span className="terminal-mark">
-            ◢
-          </span>
-
-          SmartRoad
-        </button>
-
-        <button
-          type="button"
-          onClick={openLogin}
-          className="terminal-signin"
-        >
-          SIGN IN <span>↗</span>
-        </button>
-
-      </nav>
-
-      {/* =====================================================
-          HERO CONTENT
-      ===================================================== */}
-
-      <section className="terminal-content">
-
-        <div className="terminal-log">
-
-          <div className="terminal-log-line">
-            09:16:21{" "}
-            <b>
-              INCOMING AUDIT REQUEST DETECTED
-            </b>{" "}
-            ...
+      <main className="flex-1">
+        <section className="mx-auto max-w-6xl px-4 pb-16 pt-12 sm:px-6 sm:pt-20 lg:pb-24">
+          <div className="max-w-3xl">
+            <p className="text-sm font-semibold text-blue-600">Road safety audit platform</p>
+            <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
+              Find road safety risks before they become accidents.
+            </h1>
+            <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
+              SmartRoad Audit combines segment risk scoring, on-device pothole detection and IRC checklists in one
+              workspace for road safety teams.
+            </p>
+            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+              <Link to="/login" className="btn btn-primary px-6 py-3 text-base">
+                Get started
+                <IconArrowRight className="size-4" />
+              </Link>
+              <Link to="/scanner" className="btn btn-secondary px-6 py-3 text-base">
+                Try the pothole scanner
+              </Link>
+            </div>
+            <ul className="mt-8 flex flex-col gap-2 text-sm text-slate-600 sm:flex-row sm:gap-6">
+              {["Works on any phone browser", "No app install", "Geotagged evidence"].map((point) => (
+                <li key={point} className="flex items-center gap-2">
+                  <IconCheck className="size-4 text-emerald-600" />
+                  {point}
+                </li>
+              ))}
+            </ul>
           </div>
+        </section>
 
-          <div className="terminal-log-line">
-            09:16:24{" "}
-            <b>
-              SAFETY WORKSPACE WAKING UP
-            </b>{" "}
-            ...
+        <section className="border-t border-slate-200 bg-slate-50">
+          <div className="mx-auto grid max-w-6xl gap-4 px-4 py-12 sm:grid-cols-3 sm:px-6 sm:py-16">
+            {FEATURES.map(({ icon: Icon, title, description }) => (
+              <div key={title} className="card p-5">
+                <span className="flex size-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                  <Icon className="size-5" />
+                </span>
+                <h2 className="mt-4 font-semibold text-slate-900">{title}</h2>
+                <p className="mt-1.5 text-sm leading-6 text-slate-600">{description}</p>
+              </div>
+            ))}
           </div>
+        </section>
+      </main>
 
-        </div>
-
-        <button
-          type="button"
-          onClick={openLogin}
-          className="terminal-title"
-          aria-label="Open SmartRoad Audit workspace"
-        >
-          <span>
-            ╔══════════════════════════════╗
-          </span>
-
-          <strong>
-            SMARTROAD
-            <br />
-            AUDIT
-          </strong>
-
-          <span>
-            ╚══════════════════════════════╝
-          </span>
-        </button>
-
-      </section>
-
-      {/* =====================================================
-          CTA
-      ===================================================== */}
-
-      <button
-        type="button"
-        onClick={openLogin}
-        className="terminal-start"
-      >
-        START AUDITING ON SMARTROAD TODAY{" "}
-        <span>→</span>
-      </button>
-
-      {/* =====================================================
-          STATUS
-      ===================================================== */}
-
-      <div className="terminal-status">
-        <span className="status-spinner">
-          ◔
-        </span>
-
-        APPLICATION READY
-      </div>
-
-      <div className="terminal-line" />
-
-    </main>
+      <footer className="border-t border-slate-200">
+        <p className="mx-auto max-w-6xl px-4 py-6 text-xs text-slate-500 sm:px-6">
+          SmartRoad Audit · Screening results support, but do not replace, a professional road safety audit.
+        </p>
+      </footer>
+    </div>
   );
 }
 

@@ -137,6 +137,22 @@ for p in candidate_paths:
         break
 
 if FRONTEND_DIST:
+    # The API is also mounted without the /api prefix for older clients, so paths like /audits/5
+    # are both API routes and app pages. Browser page loads ask for HTML: give them the app.
+    API_ONLY_PREFIXES = ('/api', '/docs', '/redoc', '/openapi', '/health', '/assets', '/models')
+
+    @app.middleware('http')
+    async def serve_spa_for_page_loads(request: Request, call_next):
+        path = request.url.path
+        if (
+            request.method == 'GET'
+            and 'text/html' in request.headers.get('accept', '')
+            and not path.startswith(API_ONLY_PREFIXES)
+            and not os.path.isfile(os.path.join(FRONTEND_DIST, path.lstrip('/')))
+        ):
+            return FileResponse(os.path.join(FRONTEND_DIST, 'index.html'))
+        return await call_next(request)
+
     assets_dir = os.path.join(FRONTEND_DIST, 'assets')
     if os.path.isdir(assets_dir):
         app.mount('/assets', StaticFiles(directory=assets_dir), name='assets')

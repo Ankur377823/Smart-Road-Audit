@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { snapToRoad } from "../../services/api";
+import { IconCheck, IconClose, IconCrosshair, IconPin } from "../common/Icons";
 
 const GOOGLE_MAPS_API_KEY =
   import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -973,7 +974,7 @@ function LocationPicker({
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
                 aria-label="Clear search"
               >
-                ×
+                <IconClose className="size-4" />
               </button>
             )}
           </div>
@@ -1006,11 +1007,12 @@ function LocationPicker({
             snapping ||
             !googleLoaded
           }
-          className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="btn btn-secondary py-3"
         >
+          <IconCrosshair className="size-4" />
           {locating
             ? "Locating..."
-            : "⌖ Use Current Location"}
+            : "Use current location"}
         </button>
       </div>
 
@@ -1025,21 +1027,15 @@ function LocationPicker({
           Search a road or area
         </span>
 
-        <span className="hidden text-slate-300 sm:inline">
-          →
-        </span>
 
         <span className="flex items-center gap-2">
           <span className="flex size-5 items-center justify-center rounded-full bg-blue-100 text-blue-600">
             2
           </span>
 
-          Click the exact road point
+          Tap the exact road point
         </span>
 
-        <span className="hidden text-slate-300 sm:inline">
-          →
-        </span>
 
         <span className="flex items-center gap-2">
           <span className="flex size-5 items-center justify-center rounded-full bg-blue-100 text-blue-600">
@@ -1096,7 +1092,7 @@ function LocationPicker({
           <div className="flex items-start gap-4">
 
             <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
-              📍
+              <IconPin className="size-5" />
             </div>
 
             <div className="min-w-0">
@@ -1131,8 +1127,9 @@ function LocationPicker({
                 </span>
 
                 {selectedLocation.place_id && (
-                  <span className="rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-green-600">
-                    ✓ Road matched
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-green-600">
+                    <IconCheck className="size-3.5" />
+                    Road matched
                   </span>
                 )}
 

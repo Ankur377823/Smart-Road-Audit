@@ -37,6 +37,9 @@ services:
         value: "*"
       - key: GOOGLE_MAPS_API_KEY
         sync: false
+      # Browser key for the maps in the UI (inlined at build time; restrict it to your domain)
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        sync: false
 
   # -------------------------------------------------------------
   # Frontend Web Service (React 19 + Vite Static Site)
@@ -58,3 +61,5 @@ services:
           type: web
           name: smartroad-backend
           property: url
+      - key: VITE_GOOGLE_MAPS_API_KEY
+        sync: false

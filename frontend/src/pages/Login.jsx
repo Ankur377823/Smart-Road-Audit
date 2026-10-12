@@ -1,227 +1,101 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { BrandMark } from "../components/layout/Navbar";
+import { Notice } from "../components/common/ui";
+
+const DEMO_EMAIL = "admin@smartroad.local";
+const DEMO_PASSWORD = "smartroad123";
+
 function Login() {
   const navigate = useNavigate();
 
-  const [loginForm, setLoginForm] = useState({
-    email: "",
-    password: "",
-  });
-
-  const [loginError, setLoginError] =
-    useState("");
-
-  const [loading, setLoading] =
-    useState(false);
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
 
   function handleChange(field, value) {
-    setLoginForm((previous) => ({
-      ...previous,
-      [field]: value,
-    }));
-
-    setLoginError("");
+    setForm((previous) => ({ ...previous, [field]: value }));
+    setError("");
   }
 
   function handleSubmit(event) {
     event.preventDefault();
 
-    setLoginError("");
-    setLoading(true);
-
     // Demo authentication
-    if (
-      loginForm.email ===
-        "admin@smartroad.local" &&
-      loginForm.password === "smartroad123"
-    ) {
+    if (form.email.trim() === DEMO_EMAIL && form.password === DEMO_PASSWORD) {
       navigate("/dashboard");
       return;
     }
-
-    setLoginError(
-      "Invalid email or password. Please use the demo credentials."
-    );
-
-    setLoading(false);
+    setError("Incorrect email or password. Use the demo credentials below.");
   }
 
-  function handleBack() {
-    navigate("/");
+  function fillDemo() {
+    setForm({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+    setError("");
   }
 
   return (
-    <main className="login-page min-h-screen px-4 py-6 sm:px-6 sm:py-8 text-slate-100">
+    <div className="flex min-h-screen flex-col bg-slate-50">
+      <header className="mx-auto flex h-16 w-full max-w-6xl items-center px-4 sm:px-6">
+        <BrandMark to="/" />
+      </header>
 
-      {/* =====================================================
-          BRAND
-      ===================================================== */}
+      <main className="flex flex-1 items-start justify-center px-4 pb-16 pt-6 sm:items-center sm:pt-0">
+        <div className="w-full max-w-sm">
+          <div className="card p-6 sm:p-8">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Sign in</h1>
+            <p className="mt-1 text-sm text-slate-600">Welcome back. Sign in to your workspace.</p>
 
-      <button
-        type="button"
-        onClick={handleBack}
-        className="brand-mark text-left"
-        aria-label="Back to SmartRoad home"
-      >
-        <span className="brand-dot" />
+            <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <div>
+                <label htmlFor="email" className="field-label">Email</label>
+                <input
+                  id="email"
+                  type="email"
+                  required
+                  value={form.email}
+                  onChange={(event) => handleChange("email", event.target.value)}
+                  placeholder="you@company.com"
+                  autoComplete="email"
+                  inputMode="email"
+                  className="input mt-1.5"
+                />
+              </div>
 
-        <span>
-          SmartRoad{" "}
-          <b>Audit</b>
-        </span>
-      </button>
+              <div>
+                <label htmlFor="password" className="field-label">Password</label>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  value={form.password}
+                  onChange={(event) => handleChange("password", event.target.value)}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  className="input mt-1.5"
+                />
+              </div>
 
-      {/* =====================================================
-          LOGIN CONTENT
-      ===================================================== */}
+              {error && <Notice tone="error">{error}</Notice>}
 
-      <div className="mx-auto grid min-h-[calc(100vh-100px)] max-w-5xl items-center gap-12 lg:grid-cols-[0.9fr_1.1fr]">
+              <button type="submit" className="btn btn-primary w-full py-3">
+                Sign in
+              </button>
+            </form>
+          </div>
 
-        {/* ===================================================
-            LEFT CONTENT
-        =================================================== */}
-
-        <div className="hidden lg:block">
-
-          <p className="eyebrow">
-            Your road safety command center
-          </p>
-
-          <h1 className="login-heading">
-            Good decisions
-            <br />
-            <em>start here.</em>
-          </h1>
-
-          <p className="max-w-md text-lg leading-8 text-slate-400">
-            Sign in to create audits, review risk
-            segments, and keep your work moving in
-            one focused place.
-          </p>
-
+          <div className="mt-4 rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-600">
+            <p className="font-medium text-slate-700">Demo account</p>
+            <p className="mt-1 break-all font-mono text-xs">
+              {DEMO_EMAIL} / {DEMO_PASSWORD}
+            </p>
+            <button type="button" onClick={fillDemo} className="mt-2 text-sm font-semibold text-blue-600 hover:text-blue-700">
+              Fill in demo credentials
+            </button>
+          </div>
         </div>
-
-        {/* ===================================================
-            LOGIN CARD
-        =================================================== */}
-
-        <form
-          onSubmit={handleSubmit}
-          className="login-card animate-rise"
-        >
-
-          <div className="mb-10">
-
-            <p className="eyebrow">
-              Welcome back
-            </p>
-
-            <h2>
-              Sign in to workspace
-            </h2>
-
-            <p>
-              Use your SmartRoad account to continue.
-            </p>
-
-          </div>
-
-          {/* =================================================
-              EMAIL
-          ================================================= */}
-
-          <label>
-            Email address
-
-            <input
-              type="email"
-              required
-              value={loginForm.email}
-              onChange={(event) =>
-                handleChange(
-                  "email",
-                  event.target.value
-                )
-              }
-              placeholder="you@company.com"
-              autoComplete="email"
-            />
-          </label>
-
-          {/* =================================================
-              PASSWORD
-          ================================================= */}
-
-          <label className="mt-5">
-            Password
-
-            <input
-              type="password"
-              required
-              value={loginForm.password}
-              onChange={(event) =>
-                handleChange(
-                  "password",
-                  event.target.value
-                )
-              }
-              placeholder="Enter your password"
-              autoComplete="current-password"
-            />
-          </label>
-
-          {/* =================================================
-              ERROR
-          ================================================= */}
-
-          {loginError && (
-            <p
-              className="login-error"
-              role="alert"
-            >
-              {loginError}
-            </p>
-          )}
-
-          {/* =================================================
-              SUBMIT
-          ================================================= */}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="primary-button mt-7 w-full justify-center disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading
-              ? "Entering workspace..."
-              : "Enter workspace"}
-
-            {!loading && (
-              <span>→</span>
-            )}
-          </button>
-
-          {/* =================================================
-              DEMO ACCESS
-          ================================================= */}
-
-          <div className="demo-note">
-            <span>Demo access</span>
-
-            <br />
-
-            admin@smartroad.local
-
-            <br />
-
-            smartroad123
-          </div>
-
-        </form>
-
-      </div>
-    </main>
+      </main>
+    </div>
   );
 }
 

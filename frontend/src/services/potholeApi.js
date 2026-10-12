@@ -1,15 +1,8 @@
-const RAW_API_BASE_URL = import.meta.env.VITE_API_BASE_URL
-  ? import.meta.env.VITE_API_BASE_URL.replace(/\/$/, '')
-  : (typeof window !== 'undefined' && (window.location.port === '5173' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && window.location.port !== '8000' && window.location.port !== '10000'
-      ? 'http://127.0.0.1:8000'
-      : '')
-const API_BASE_URL = RAW_API_BASE_URL
-  ? (RAW_API_BASE_URL.endsWith('/api') ? RAW_API_BASE_URL : `${RAW_API_BASE_URL}/api`)
-  : '/api'
+import { API_BASE_URL } from './apiBase'
 
 const DETECT_TIMEOUT_MS = 8000
 
-export async function detectPotholes({ imageBase64, confThreshold = 0.35, latitude = null, longitude = null, speedKmh = null, auditId = null }) {
+export async function detectPotholes({ imageBase64, confThreshold = 0.55, latitude = null, longitude = null, speedKmh = null, auditId = null }) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), DETECT_TIMEOUT_MS)
 

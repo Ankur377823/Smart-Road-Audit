@@ -2,7 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import PotholeCanvasOverlay from './PotholeCanvasOverlay'
 import { detectPotholes, savePotholesToAudit } from '../../services/potholeApi'
 import { distanceMeters, formatCoord } from './geo'
+import { SEVERITY_TONE } from './severity'
 import { detectOnDevice, isOnDeviceSupported, loadOnDeviceDetector } from '../../ml/pothole/onDeviceDetector'
+import { Badge, Notice, PageHeader } from '../common/ui'
+import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconStop, IconTrash } from '../common/Icons'
 import './pothole.css'
 
 // On-device inference is paced by the worker; server round-trips are throttled harder
@@ -95,7 +98,10 @@ const SEVERITY_COLOR = {
   minor: 'rgb(56, 189, 248)',
 }
 
-function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}, onBack = () => {} }) {
+// Default detection confidence; lower values catch more potholes but also more false positives
+const DEFAULT_CONFIDENCE = 0.55
+
+function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {} }) {
   const videoRef = useRef(null)
   const streamRef = useRef(null)
   const processingRef = useRef(false)
@@ -119,14 +125,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const [inferenceMs, setInferenceMs] = useState(null)
 
   // Detection Sensitivity / Confidence Filter
-  const [confThreshold, setConfThreshold] = useState(0.35)
+  const [confThreshold, setConfThreshold] = useState(DEFAULT_CONFIDENCE)
 
   // Live Telemetry & GPS (raw, unrounded values)
   const [gps, setGps] = useState({ lat: null, lng: null, speedKmh: null, accuracy: null, timestamp: null })
   // 'locating' | 'locked' | 'denied' | 'unavailable' | 'unsupported' | 'insecure'
   const [gpsStatus, setGpsStatus] = useState('locating')
   const [now, setNow] = useState(() => Date.now())
-  const [fps, setFps] = useState(null)
 
   // Detections & Overlays
   const [currentDetections, setCurrentDetections] = useState([])
@@ -207,11 +212,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setCurrentDetections([])
     setCameraActive(false)
   }, [])
-
-  const handleExit = () => {
-    stopCamera()
-    onBack()
-  }
 
   // Ensure camera shuts down when leaving component
   useEffect(() => {
@@ -448,8 +448,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
     let isMounted = true
     const confirmFrames = CONFIRM_FRAMES[engine]
-    let frameCount = 0
-    let lastFpsTime = performance.now()
 
     const resolveLocation = (fix, auditId) => {
       if (isFixFresh(fix)) {
@@ -560,15 +558,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
         setDetectError(null)
         setHumanWarning(response?.human_detected ? response?.warning_message || 'Non-road object filtered' : null)
 
-        // Calculate FPS
-        frameCount++
-        const nowPerf = performance.now()
-        if (nowPerf - lastFpsTime >= 1000) {
-          setFps(Math.round((frameCount * 1000) / (nowPerf - lastFpsTime)))
-          frameCount = 0
-          lastFpsTime = nowPerf
-        }
-
         // Synthetic detections are never recorded
         if (response?.model_mode === SIMULATION_MODE) {
           tracksRef.current = []
@@ -673,389 +662,284 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setNotice(null)
   }
 
-  const severeCount = sessionPotholes.filter((p) => p.severity === 'severe').length
-  const moderateCount = sessionPotholes.filter((p) => p.severity === 'moderate').length
-  const minorCount = sessionPotholes.filter((p) => p.severity === 'minor').length
+  const counts = {
+    severe: sessionPotholes.filter((p) => p.severity === 'severe').length,
+    moderate: sessionPotholes.filter((p) => p.severity === 'moderate').length,
+    minor: sessionPotholes.filter((p) => p.severity === 'minor').length,
+  }
   const unlocatedCount = sessionPotholes.filter((p) => p.locationSource !== 'gps').length
 
   const gpsLabel = (() => {
     switch (gpsStatus) {
       case 'locked':
-        if (fixIsStale) return { tone: 'amber', text: `GPS signal lost (${Math.round((fixAgeMs || 0) / 1000)}s ago)` }
-        if (fixIsPoor) return { tone: 'amber', text: `${formatCoord(gps.lat, gps.lng)} (±${gps.accuracy}m, low accuracy)` }
-        return { tone: 'emerald', text: `${formatCoord(gps.lat, gps.lng)} (±${gps.accuracy}m)` }
+        if (fixIsStale) return { tone: 'amber', text: `Signal lost ${Math.round((fixAgeMs || 0) / 1000)}s ago` }
+        if (fixIsPoor) return { tone: 'amber', text: `Low accuracy (±${gps.accuracy} m)` }
+        return { tone: 'green', text: `Locked (±${gps.accuracy} m)` }
       case 'denied':
-        return { tone: 'rose', text: 'Location denied — allow it in browser settings, then retry' }
+        return { tone: 'red', text: 'Permission denied' }
       case 'unavailable':
-        return { tone: 'rose', text: 'GPS unavailable — retry' }
+        return { tone: 'red', text: 'Unavailable' }
       case 'unsupported':
-        return { tone: 'rose', text: 'Geolocation not supported' }
+        return { tone: 'red', text: 'Not supported' }
       case 'insecure':
-        return { tone: 'rose', text: 'GPS requires HTTPS' }
+        return { tone: 'red', text: 'Requires HTTPS' }
       default:
-        return { tone: 'sky', text: 'Locating device…' }
+        return { tone: 'slate', text: 'Locating…' }
     }
   })()
+  const gpsDot = { green: 'bg-emerald-500', amber: 'bg-amber-500', red: 'bg-red-500', slate: 'bg-slate-400 animate-pulse' }[gpsLabel.tone]
+  const canRetryGps = gpsStatus !== 'locked' || fixIsStale
 
-  const gpsToneClass = {
-    emerald: 'border-emerald-500/40 text-emerald-300 bg-emerald-950/40',
-    amber: 'border-amber-500/40 text-amber-300 bg-amber-950/40',
-    rose: 'border-rose-500/40 text-rose-300 bg-rose-950/40',
-    sky: 'border-sky-500/30 text-sky-300 bg-sky-950/40 animate-pulse',
-  }[gpsLabel.tone]
-
-  const noticeClass = {
-    success: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-    warning: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
-    error: 'border-rose-500/30 bg-rose-500/10 text-rose-300',
-  }
+  const modelLabel = (() => {
+    if (engine === 'loading') return `Loading model${modelProgress != null ? ` ${modelProgress}%` : '…'}`
+    if (isSimulation) return 'Simulation'
+    if (modelMode === ON_DEVICE_MODE) return `On-device${inferenceMs != null ? ` · ${inferenceMs} ms` : ''}`
+    if (modelMode) return 'Server'
+    return engine === 'device' ? 'On-device' : 'Server'
+  })()
 
   return (
     <div className="pothole-scanner-root">
-      {/* Top Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <button
-            onClick={handleExit}
-            className="text-xs font-semibold uppercase tracking-wider text-slate-400 hover:text-white flex items-center gap-1.5 transition"
-          >
-            ← Back to workspace
-          </button>
-          <h1 className="mt-1 text-2xl font-bold text-white flex flex-wrap items-center gap-3">
-            <span>YOLO Live Road Scanner</span>
-            {isSimulation ? (
-              <span className="rounded-full bg-amber-500/10 px-3 py-0.5 text-xs font-semibold text-amber-300 border border-amber-500/30">
-                Simulation Mode
-              </span>
-            ) : (
-              <span className="rounded-full bg-emerald-500/10 px-3 py-0.5 text-xs font-semibold text-emerald-400 border border-emerald-500/20">
-                Real-Time Pothole AI
-              </span>
-            )}
-          </h1>
-        </div>
-
-        {/* Audit Association Selector, Sensitivity & Live Geotag Status */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Live Device GPS Indicator */}
-          <button
-            type="button"
-            onClick={startLocationWatch}
-            title="Click to restart GPS"
-            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-mono transition ${gpsToneClass}`}
-          >
-            <span className="size-2 rounded-full bg-current" />
-            {gpsLabel.text}
-          </button>
-
-          <div className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300">
-            <label htmlFor="pothole-conf">Confidence:</label>
-            <input
-              id="pothole-conf"
-              type="range"
-              min="0.15"
-              max="0.85"
-              step="0.05"
-              value={confThreshold}
-              onChange={(e) => setConfThreshold(Number(e.target.value))}
-              className="w-20 accent-sky-400 cursor-pointer"
-            />
-            <strong className="text-sky-400 min-w-[32px] text-right font-mono">
-              {Math.round(confThreshold * 100)}%
-            </strong>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label htmlFor="pothole-audit" className="text-xs text-slate-400">Target Audit:</label>
-            <select
-              id="pothole-audit"
-              value={selectedAuditId}
-              onChange={(e) => setSelectedAuditId(e.target.value)}
-              className="rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white focus:border-sky-500 outline-none"
-            >
-              <option value="">{audits.length ? 'Select an audit…' : 'No audits available'}</option>
-              {audits.map((a) => (
-                <option key={a.id} value={String(a.id)}>
-                  Audit #{a.id} ({a.road_class || 'road'} - {a.status || 'saved'})
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Pothole scanner"
+        description="Point the camera at the road. Potholes are detected on this device, geotagged and sized."
+      />
 
       {engineError && (
-        <div className="rounded-xl border border-slate-700 bg-slate-900/80 p-3 text-xs text-slate-300">
-          On-device AI couldn't start ({engineError}). Falling back to server detection, which is slower.
-        </div>
+        <Notice tone="warning" className="mb-4">
+          On-device detection couldn&apos;t start ({engineError}). Using server detection instead, which is slower.
+        </Notice>
       )}
-
       {isSimulation && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-200">
-          ⚠️ <strong>Simulation mode:</strong> the YOLO model weights are not loaded on the server. Boxes shown are
-          synthetic and are not recorded or saved.
-        </div>
+        <Notice tone="warning" className="mb-4">
+          <strong>Simulation mode.</strong> The detection model isn&apos;t available, so the boxes shown are synthetic.
+          They are not recorded or saved.
+        </Notice>
+      )}
+      {!isSecure && (
+        <Notice tone="error" className="mb-4">
+          Camera and location need a secure connection. Open this page over https:// to scan.
+        </Notice>
       )}
 
-      {/* Main Viewfinder Card */}
-      <div className="scanner-viewfinder-card">
-        {/* Live Camera Video Feed (always mounted so ref is never null) */}
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className={`scanner-video-feed ${cameraActive ? 'block' : 'hidden'}`}
-        />
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {/* Viewfinder */}
+        <div className="scanner-viewfinder">
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={`scanner-video-feed ${cameraActive ? 'block' : 'hidden'}`}
+          />
 
-        {/* Real-time Neon Polygon Overlay */}
-        {cameraActive && (
-          <>
-            <PotholeCanvasOverlay
-              detections={currentDetections}
-              frameWidth={videoDims.width}
-              frameHeight={videoDims.height}
-            />
-            <div className="scanner-reticle" />
-          </>
-        )}
+          {cameraActive ? (
+            <>
+              <PotholeCanvasOverlay detections={currentDetections} frameWidth={videoDims.width} frameHeight={videoDims.height} />
 
-        {/* Camera Off / Standby State */}
-        {!cameraActive && (
-          <div className="text-center p-8 max-w-md">
-            <div className="mx-auto w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center text-2xl mb-4">
-              📷
-            </div>
-            <h3 className="text-lg font-semibold text-white">Road Camera Standby</h3>
-            <p className={`mt-2 text-sm leading-relaxed ${cameraError ? 'text-rose-300' : 'text-slate-400'}`}>
-              {cameraError || 'Click below to launch your camera and start detecting road potholes in real time.'}
-            </p>
-
-            <div className="mt-6 flex items-center justify-center gap-3">
-              <button
-                onClick={startCamera}
-                disabled={!isSecure}
-                className="scanner-ctrl-btn primary justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Launch Webcam / Camera
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Scanner HUD Top */}
-        {cameraActive && (
-          <div className="scanner-hud-top">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="hud-badge live">
-                <span className="pulse-dot" /> LIVE SCANNING
-              </span>
-              <span className="hud-badge">
-                FPS: <strong className="text-sky-400">{fps ?? '–'}</strong>
-              </span>
-              {engine === 'loading' ? (
-                <span className="hud-badge text-[11px] text-sky-300 animate-pulse">
-                  Loading AI model{modelProgress != null ? ` ${modelProgress}%` : '…'}
-                </span>
-              ) : modelMode && (
-                <span className="hud-badge text-[11px] text-slate-300">
-                  Model:{' '}
-                  <strong className={isSimulation ? 'text-amber-300' : 'text-emerald-400'}>
-                    {isSimulation ? 'SIMULATION' : modelMode === ON_DEVICE_MODE ? 'On-device' : 'Server'}
-                  </strong>
-                  {modelMode === ON_DEVICE_MODE && inferenceMs != null && (
-                    <span className="ml-1 text-slate-400">{inferenceMs}ms</span>
+              <div className="scanner-hud-top">
+                <div className="flex flex-col items-start gap-1.5">
+                  <span className="hud-chip">
+                    <span className="live-dot" aria-hidden="true" />
+                    Live
+                    <span className="text-white/50">·</span>
+                    <span className={isSimulation ? 'text-amber-300' : 'text-white/80'}>{modelLabel}</span>
+                  </span>
+                  {(detectError || humanWarning) && (
+                    <span className={`hud-chip ${detectError ? 'text-red-200' : 'text-amber-200'}`}>
+                      <IconAlert className="size-3.5" />
+                      {detectError || humanWarning}
+                    </span>
                   )}
-                </span>
-              )}
-              {humanWarning && (
-                <span className="hud-badge text-[11px] bg-amber-500/20 text-amber-300 border-amber-500/30">
-                  🛡️ {humanWarning}
-                </span>
-              )}
-              {detectError && (
-                <span className="hud-badge text-[11px] bg-rose-500/20 text-rose-300 border-rose-500/30">
-                  ⚠️ {detectError}
-                </span>
-              )}
-            </div>
+                </div>
+                {gps.speedKmh != null && !fixIsStale && (
+                  <span className="hud-chip tabular-nums">{gps.speedKmh} km/h</span>
+                )}
+              </div>
 
-            {/* GPS Telemetry HUD */}
-            <div className="flex flex-col items-end gap-1 text-right">
+              <div className="scanner-hud-bottom">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
+                    className="hud-button"
+                    aria-label="Switch camera"
+                    title="Switch camera"
+                  >
+                    <IconCameraFlip className="size-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopCamera}
+                    className="hud-button hud-button-stop"
+                    aria-label="Stop camera"
+                    title="Stop camera"
+                  >
+                    <IconStop className="size-5" />
+                  </button>
+                </div>
+                <span className="hud-chip tabular-nums">{sessionPotholes.length} recorded</span>
+              </div>
+            </>
+          ) : (
+            <div className="relative z-10 flex max-w-xs flex-col items-center px-6 text-center">
+              <span className="flex size-14 items-center justify-center rounded-full bg-white/10 text-white">
+                <IconCamera className="size-7" />
+              </span>
+              <h2 className="mt-4 text-lg font-semibold text-white">Camera is off</h2>
+              <p className={`mt-1.5 text-sm ${cameraError ? 'text-red-300' : 'text-slate-300'}`}>
+                {cameraError || 'Start the camera, then hold your phone steady with the road in view.'}
+              </p>
               <button
                 type="button"
-                onClick={startLocationWatch}
-                className={`hud-badge font-mono text-xs cursor-pointer pointer-events-auto ${gpsToneClass}`}
-                title="Click to restart GPS"
+                onClick={startCamera}
+                disabled={!isSecure}
+                className="btn mt-5 bg-white px-5 py-3 text-slate-900 hover:bg-slate-100"
               >
-                📍 {gpsLabel.text}
+                <IconCamera className="size-4" />
+                Start camera
               </button>
-              {gps.speedKmh != null && !fixIsStale && (
-                <span className="hud-badge text-xs">
-                  SPEED: <strong className="text-amber-400">{gps.speedKmh} km/h</strong>
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Scanner HUD Bottom Controls */}
-        {cameraActive && (
-          <div className="scanner-hud-bottom">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setFacingMode((prev) => (prev === 'environment' ? 'user' : 'environment'))}
-                className="scanner-ctrl-btn"
-                title="Switch between front and rear camera"
-              >
-                🔄 Flip Cam
-              </button>
-              <button
-                onClick={stopCamera}
-                className="scanner-ctrl-btn text-rose-400 hover:text-rose-300"
-              >
-                ⏹ Stop Camera
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="hud-badge">
-                Detections:{' '}
-                <strong className="text-sky-300 ml-1">{sessionPotholes.length}</strong>
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Session Potholes Summary & Save Bar */}
-      <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
-        {/* Left: Live Captured Evidence Gallery with Depth and Risk */}
-        <div className="dashboard-panel">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-white">Live Detected Potholes</h2>
-              <p className="text-xs text-slate-400">
-                Recorded after {CONFIRM_FRAMES[engine === 'server' ? 'server' : 'device']} consecutive frames, with
-                depth and risk estimates from cavity shading and texture.
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 text-xs">
-                <span className="severity-pill severe">{severeCount} Severe</span>
-                <span className="severity-pill moderate">{moderateCount} Moderate</span>
-                <span className="severity-pill minor">{minorCount} Minor</span>
-              </div>
-              {sessionPotholes.length > 0 && (
-                <button
-                  onClick={handleClearSession}
-                  className="text-xs text-slate-500 hover:text-rose-400 transition"
-                  title="Clear all recorded potholes in this session"
-                >
-                  Clear List
-                </button>
-              )}
-            </div>
-          </div>
-
-          {sessionPotholes.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 text-sm">
-              Point camera at road surface to detect potholes. (Filter threshold: {Math.round(confThreshold * 100)}%)
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3 max-h-80 overflow-y-auto pr-1">
-              {[...sessionPotholes].reverse().map((item, idx) => {
-                const conf = (item.confidence * 100).toFixed(0)
-                const sev = item.severity
-
-                return (
-                  <div key={item.id} className="detection-item-card">
-                    {item.snapshot ? (
-                      <img
-                        src={item.snapshot}
-                        alt="Pothole Snapshot"
-                        className="w-20 h-14 object-cover rounded-lg border border-slate-700"
-                      />
-                    ) : (
-                      <div className="w-20 h-14 rounded-lg bg-slate-800 flex items-center justify-center text-xs text-slate-500">
-                        No img
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-white text-sm">
-                          Incident #{sessionPotholes.length - idx}
-                        </span>
-                        <span className={`severity-pill ${sev}`}>{sev}</span>
-                      </div>
-                      <div className="mt-1 flex items-center gap-3 text-xs">
-                        <span className="text-amber-300 font-semibold">
-                          Depth: {item.depth_cm.toFixed(1)} cm
-                        </span>
-                        <span className="text-sky-300 font-mono">
-                          Risk: {Math.round(item.risk_score)}/100
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 mt-1 font-mono">
-                        📍 {formatCoord(item.latitude, item.longitude, 5)}
-                        {item.locationSource === 'gps' && item.gpsAccuracy != null && ` ±${item.gpsAccuracy}m`}
-                        {item.locationSource === 'audit_center' && (
-                          <span className="text-amber-300"> (approx. — audit center)</span>
-                        )}
-                        {' '}• Conf: {conf}%
-                      </p>
-                    </div>
-                  </div>
-                )
-              })}
+              {engine === 'loading' && <p className="mt-3 text-xs text-slate-400">{modelLabel}</p>}
             </div>
           )}
         </div>
 
-        {/* Right: Commit to Report Card */}
-        <div className="dashboard-panel flex flex-col justify-between">
+        {/* Settings and save */}
+        <aside className="card h-fit p-4 sm:p-5">
           <div>
-            <h2 className="text-lg font-semibold text-white">Audit Report Integration</h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Commit these live detections and depth calculations directly into your audit report.
-            </p>
+            <label htmlFor="pothole-audit" className="field-label">Add detections to</label>
+            <select
+              id="pothole-audit"
+              value={selectedAuditId}
+              onChange={(e) => setSelectedAuditId(e.target.value)}
+              className="input mt-1.5"
+            >
+              <option value="">{audits.length ? 'Select an audit…' : 'No audits available'}</option>
+              {audits.map((a) => (
+                <option key={a.id} value={String(a.id)}>
+                  #{a.id} · {a.location_name || `${a.road_class || 'Road'} audit`}
+                </option>
+              ))}
+            </select>
+          </div>
 
-            <div className="mt-6 space-y-3">
-              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3">
-                <p className="text-xs text-slate-400">Total Incidents Ready</p>
-                <p className="text-2xl font-bold text-sky-400 mt-1">{sessionPotholes.length}</p>
-                {unlocatedCount > 0 && (
-                  <p className="mt-1 text-[11px] text-amber-300">
-                    {unlocatedCount} without a live GPS fix (approximate or no location)
-                  </p>
-                )}
-              </div>
-              <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-3">
-                <p className="text-xs text-slate-400">Destination</p>
-                <p className="text-sm font-semibold text-white mt-1">
-                  {selectedAuditId ? `Audit Record #${selectedAuditId}` : 'No Audit Selected'}
-                </p>
-              </div>
+          <div className="mt-5">
+            <div className="flex items-center justify-between">
+              <label htmlFor="pothole-conf" className="field-label">Detection confidence</label>
+              <span className="text-sm font-semibold tabular-nums text-slate-900">{Math.round(confThreshold * 100)}%</span>
             </div>
+            <input
+              id="pothole-conf"
+              type="range"
+              min="0.15"
+              max="0.9"
+              step="0.05"
+              value={confThreshold}
+              onChange={(e) => setConfThreshold(Number(e.target.value))}
+              className="mt-2 w-full accent-slate-900"
+            />
+            <p className="mt-1 text-xs text-slate-500">Lower finds more potholes but also more false alarms.</p>
+          </div>
 
-            {notice && (
-              <div role="status" className={`mt-4 p-3 rounded-xl border text-xs ${noticeClass[notice.type]}`}>
-                {notice.text}
-              </div>
+          <div className="mt-5 flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-xs font-medium text-slate-500">Location</p>
+              <p className="flex items-center gap-2 text-sm font-medium text-slate-900">
+                <span className={`size-2 shrink-0 rounded-full ${gpsDot}`} aria-hidden="true" />
+                <span className="truncate">{gpsLabel.text}</span>
+              </p>
+              {gpsStatus === 'locked' && gps.lat != null && (
+                <p className="mt-0.5 truncate font-mono text-xs text-slate-500">{formatCoord(gps.lat, gps.lng)}</p>
+              )}
+            </div>
+            {canRetryGps && (
+              <button type="button" onClick={startLocationWatch} className="btn btn-secondary shrink-0 px-3 py-1.5 text-xs">
+                <IconCrosshair className="size-3.5" />
+                Retry
+              </button>
             )}
           </div>
 
-          <div className="mt-6 pt-4 border-t border-slate-800 flex items-center gap-3">
-            <button
-              onClick={handleSaveToAudit}
-              disabled={saving || sessionPotholes.length === 0 || !selectedAuditId || isSimulation}
-              className="scanner-ctrl-btn primary w-full justify-center disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving ? 'Adding to Report...' : 'Add Detections to Audit Report →'}
-            </button>
+          <div className="mt-5 grid grid-cols-3 gap-2 text-center">
+            {['severe', 'moderate', 'minor'].map((level) => (
+              <div key={level} className="rounded-lg border border-slate-200 px-2 py-2">
+                <p className="text-lg font-bold tabular-nums text-slate-900">{counts[level]}</p>
+                <p className="text-xs capitalize text-slate-500">{level}</p>
+              </div>
+            ))}
           </div>
-        </div>
+          {unlocatedCount > 0 && (
+            <p className="mt-2 text-xs text-amber-700">
+              {unlocatedCount} recorded without a live GPS fix (approximate or no location).
+            </p>
+          )}
+
+          {notice && <Notice tone={notice.type} className="mt-4">{notice.text}</Notice>}
+
+          <button
+            type="button"
+            onClick={handleSaveToAudit}
+            disabled={saving || sessionPotholes.length === 0 || !selectedAuditId || isSimulation}
+            className="btn btn-primary mt-5 w-full py-3"
+          >
+            {saving
+              ? 'Saving…'
+              : sessionPotholes.length
+                ? `Save ${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'} to audit`
+                : 'Save to audit'}
+          </button>
+        </aside>
       </div>
+
+      {/* Recorded potholes */}
+      <section className="card mt-5 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-4 sm:px-6">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Recorded potholes</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Recorded after {CONFIRM_FRAMES[engine === 'server' ? 'server' : 'device']} consecutive frames.
+            </p>
+          </div>
+          {sessionPotholes.length > 0 && (
+            <button type="button" onClick={handleClearSession} className="btn btn-secondary px-3 py-1.5 text-xs">
+              <IconTrash className="size-3.5" />
+              Clear
+            </button>
+          )}
+        </div>
+
+        {sessionPotholes.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-slate-500">
+            No potholes recorded yet. Detections at or above {Math.round(confThreshold * 100)}% confidence appear here.
+          </p>
+        ) : (
+          <ul className="max-h-[28rem] divide-y divide-slate-100 overflow-y-auto">
+            {[...sessionPotholes].reverse().map((item, idx) => (
+              <li key={item.id} className="flex items-center gap-3 px-4 py-3 sm:px-6">
+                {item.snapshot ? (
+                  <img src={item.snapshot} alt="" className="h-14 w-20 shrink-0 rounded-md border border-slate-200 object-cover" />
+                ) : (
+                  <div className="h-14 w-20 shrink-0 rounded-md bg-slate-100" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-900">Pothole {sessionPotholes.length - idx}</span>
+                    <Badge tone={SEVERITY_TONE[item.severity]}>{item.severity}</Badge>
+                  </div>
+                  <p className="mt-0.5 text-xs text-slate-600">
+                    Depth {item.depth_cm.toFixed(1)} cm · Risk {Math.round(item.risk_score)}/100 · {Math.round(item.confidence * 100)}% conf.
+                  </p>
+                  <p className="mt-0.5 truncate font-mono text-xs text-slate-500">
+                    {formatCoord(item.latitude, item.longitude)}
+                    {item.locationSource === 'gps' && item.gpsAccuracy != null && ` ±${item.gpsAccuracy} m`}
+                    {item.locationSource === 'audit_center' && <span className="font-sans text-amber-700"> (approx.)</span>}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   )
 }

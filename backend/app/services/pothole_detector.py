@@ -102,7 +102,7 @@ class PotholeDetector:
     def detect_in_frame(
         self,
         image_base64: str,
-        conf_threshold: float = 0.35,
+        conf_threshold: float = 0.55,
         latitude: float | None = None,
         longitude: float | None = None,
         speed_kmh: float | None = None,
@@ -121,7 +121,7 @@ class PotholeDetector:
             return self._run_yolo_inference(image, width, height, conf_threshold=conf_threshold)
         return self._run_demo_inference(width, height)
 
-    def _run_yolo_inference(self, image: np.ndarray, width: int, height: int, conf_threshold: float = 0.35) -> dict[str, Any]:
+    def _run_yolo_inference(self, image: np.ndarray, width: int, height: int, conf_threshold: float = 0.55) -> dict[str, Any]:
         # Fast, low-memory YOLO inference optimized for cloud containers & CPU
         grad_ctx = torch.inference_mode() if torch is not None else nullcontext()
         with _inference_lock, grad_ctx:

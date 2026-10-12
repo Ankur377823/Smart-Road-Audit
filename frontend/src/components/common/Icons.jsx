@@ -271,3 +271,100 @@ export function IconDashboard({ className = "size-4", ...props }) {
     </svg>
   );
 }
+
+function OutlineIcon({ className = "size-4", children, ...props }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      {children}
+    </svg>
+  );
+}
+
+export function IconArrowLeft(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="M19 12H5" />
+      <path d="m12 19-7-7 7-7" />
+    </OutlineIcon>
+  );
+}
+
+export function IconMenu(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="M4 6h16" />
+      <path d="M4 12h16" />
+      <path d="M4 18h16" />
+    </OutlineIcon>
+  );
+}
+
+export function IconChevronDown(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="m6 9 6 6 6-6" />
+    </OutlineIcon>
+  );
+}
+
+export function IconChevronRight(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="m9 18 6-6-6-6" />
+    </OutlineIcon>
+  );
+}
+
+export function IconScan(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="M3 7V5a2 2 0 0 1 2-2h2" />
+      <path d="M17 3h2a2 2 0 0 1 2 2v2" />
+      <path d="M21 17v2a2 2 0 0 1-2 2h-2" />
+      <path d="M7 21H5a2 2 0 0 1-2-2v-2" />
+      <circle cx="12" cy="12" r="3" />
+    </OutlineIcon>
+  );
+}
+
+export function IconLogout(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <path d="m16 17 5-5-5-5" />
+      <path d="M21 12H9" />
+    </OutlineIcon>
+  );
+}
+
+export function IconRoad(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="M4 21 8 3" />
+      <path d="m20 21-4-18" />
+      <path d="M12 4v2" />
+      <path d="M12 10v3" />
+      <path d="M12 17v3" />
+    </OutlineIcon>
+  );
+}
+
+export function IconTrash(props) {
+  return (
+    <OutlineIcon {...props}>
+      <path d="M3 6h18" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+    </OutlineIcon>
+  );
+}

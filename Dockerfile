@@ -3,6 +3,10 @@ FROM node:22-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
+# Vite inlines VITE_* variables at build time; Render passes service env vars as build args
+ARG VITE_GOOGLE_MAPS_API_KEY=""
+ARG VITE_GOOGLE_MAP_ID=""
+ENV VITE_GOOGLE_MAPS_API_KEY=${VITE_GOOGLE_MAPS_API_KEY}     VITE_GOOGLE_MAP_ID=${VITE_GOOGLE_MAP_ID}
 COPY frontend/ ./
 RUN npm run build
 
