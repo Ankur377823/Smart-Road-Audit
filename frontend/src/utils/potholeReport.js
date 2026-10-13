@@ -118,7 +118,7 @@ export async function openPotholeReport({ title, subtitle, potholes, survey, tar
 
   const notes = [
     `Size class per ${IRC_REFERENCE} cl. 7.5.3.4: small up to 25 mm deep, 200 mm wide; medium 25–50 mm deep, 500 mm wide; large over 50 mm deep, 500 mm wide. Where depth and width fall in different classes, the higher class is used.`,
-    `Risk per ${SP88_REFERENCE} cl. 4.6 (likelihood x consequence, Table 4.2): likelihood from the size class, consequence from traffic speed (GPS speed, or a typical speed for the road class). Priority per Table 4.3: Very High = Essential, High = Highly Desirable, Medium = Desirable. SP:88 risk is a qualitative judgement; the audit team should confirm each rating.`,
+    `Risk per ${SP88_REFERENCE} cl. 4.6 (likelihood x consequence, Table 4.2): likelihood from the size class, consequence from traffic speed (the higher of the surveyor's GPS speed and the typical speed for the road class: local 30, collector 40, arterial 60 km/h). Priority per Table 4.3: Very High = Essential, High = Highly Desirable, Medium = Desirable. SP:88 risk is a qualitative judgement; the audit team should confirm each rating.`,
     `Essential: ${PRIORITY_GUIDANCE.Essential} Highly Desirable: ${PRIORITY_GUIDANCE['Highly Desirable']}`,
     `Recommended treatment: ${POTHOLE_TREATMENT}`,
     'Depth is a visual estimate from the image unless marked "measured". Width and area are projected from camera height and tilt (approx. ±25%). Section rating per IRC:82 Tables 5.1–5.3: 1 Poor, 1.1–2 Fair, 2.1–3 Good.',

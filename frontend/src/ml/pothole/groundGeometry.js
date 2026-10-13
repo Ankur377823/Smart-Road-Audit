@@ -10,10 +10,11 @@ export const DEFAULT_HFOV_DEG = 66
 // Used when the device reports no orientation (e.g. desktop webcams)
 export const DEFAULT_PITCH_DEG = 30
 
+// Survey modes: phone height above the road (typical mounts)
 export const CAMERA_HEIGHTS = [
-  { value: 1.2, label: 'Car dashboard (1.2 m)' },
-  { value: 1.4, label: 'Handheld, walking (1.4 m)' },
-  { value: 1.0, label: 'Two-wheeler mount (1.0 m)' },
+  { value: 1.2, label: 'Car: dashboard mount (1.2 m)' },
+  { value: 1.0, label: 'Two-wheeler: handlebar mount (1.0 m)' },
+  { value: 1.4, label: 'Walking: handheld (1.4 m)' },
 ]
 
 const toRad = (deg) => (deg * Math.PI) / 180

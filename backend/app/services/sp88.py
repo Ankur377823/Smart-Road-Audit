@@ -6,7 +6,9 @@ Section 4.6.2: risk = likelihood (frequency) x consequence (severity); Table 4.2
 likely). Table 4.3 priority: Very High -> Essential, High -> Highly Desirable, Medium -> Desirable.
 
 SP:88 treats this as qualitative audit-team judgement; this is a transparent rule-based starting point:
-likelihood from the IRC:82-2015 size class, consequence from traffic speed.
+likelihood from the IRC:82-2015 size class, consequence from the speed of traffic using the road. The
+surveyor's own speed understates it when walking or driving slowly, so the higher of the GPS speed and
+the typical speed for the road class is used.
 Mirrors frontend/src/ml/pothole/sp88.js; keep the two in sync.
 """
 
@@ -32,7 +34,7 @@ def _speed_band(speed_kmh: float) -> int:
 
 
 def assess_risk(severity: str, speed_kmh: float | None, road_class: str | None) -> dict:
-    measured = speed_kmh is not None and speed_kmh >= 5
-    basis = speed_kmh if measured else ROAD_CLASS_SPEED_KMH.get(road_class or "", ROAD_CLASS_SPEED_KMH["collector"])
+    typical = ROAD_CLASS_SPEED_KMH.get(road_class or "", ROAD_CLASS_SPEED_KMH["collector"])
+    basis = max(speed_kmh or 0.0, typical)
     risk_level = RISK_MATRIX.get(severity, RISK_MATRIX["minor"])[_speed_band(basis)]
     return {"risk_level": risk_level, "priority": PRIORITY_FOR_RISK[risk_level]}

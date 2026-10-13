@@ -6,7 +6,7 @@ SmartRoad Audit is an AI-powered road safety screening and audit platform. It au
 
 ## Architecture Overview
 
-- **Frontend**: React (Vite, Tailwind CSS, GSAP) served via Nginx with reverse proxy to `/api`. Runs on `http://localhost:5173`. The pothole scanner runs the YOLOv8 segmentation model **in the browser** (ONNX Runtime Web, `frontend/public/models/pothole-seg.onnx`).
+- **Frontend**: React (Vite, Tailwind CSS, GSAP) served via Nginx with reverse proxy to `/api`. Runs on `http://localhost:5173`. The pothole scanner runs the YOLO26n-seg segmentation model **in the browser** (ONNX Runtime Web, `frontend/public/models/pothole-seg.onnx`).
 - **Backend**: FastAPI (Python 3.11, Uvicorn). Runs on `http://localhost:8000`. Server-side YOLO inference is optional (`pip install -r requirements-ml.txt`); without it the backend fits small free hosting tiers (~90 MB RAM).
 - **Database**: PostgreSQL 16 Alpine container with persistent storage volume (`postgres_data`). Runs on `localhost:5432`.
 

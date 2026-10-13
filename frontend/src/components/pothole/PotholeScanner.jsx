@@ -13,7 +13,7 @@ import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, Ico
 import './pothole.css'
 
 // On-device inference is paced by the worker; server round-trips are throttled harder
-const INFERENCE_INTERVAL_MS = { device: 120, server: 400 }
+const INFERENCE_INTERVAL_MS = { device: 80, server: 400 }
 const SIMULATION_MODE = 'simulation_demo'
 const ON_DEVICE_MODE = 'on_device_onnx'
 
@@ -21,16 +21,62 @@ const ON_DEVICE_MODE = 'on_device_onnx'
 const STALE_FIX_MS = 5000
 // ...but a stationary device's last fix stays valid longer (phones often stop reporting when still)
 const STATIONARY_FIX_MS = 30000
-const STATIONARY_KMH = 5
+const STATIONARY_KMH = 2
 // watchPosition only fires on movement on many phones; poll when it has been quiet this long
 const GPS_HEARTBEAT_MS = 3000
 // Fixes worse than this are flagged as low accuracy
 const POOR_ACCURACY_M = 30
-// A detection must be seen in this many frames before it is recorded (more frames at the higher on-device rate)
-const CONFIRM_FRAMES = { device: 3, server: 2 }
-// Tracks not seen for this long are dropped
+// Tracks not seen for this long (or 3 frame intervals, if longer) are dropped
 const TRACK_TTL_MS = 1500
-const TRACK_IOU_MATCH = 0.3
+const TRACK_IOU_MATCH = 0.2
+
+/**
+ * Frames a pothole must be seen in before it is recorded, adapted to the measured frame rate: at
+ * 1-2 frames per second a pothole passes through the view in one or two frames while driving, so
+ * demanding three would mean it is never recorded.
+ */
+// Stretch of road ahead in which the camera can see and confirm a pothole (about 2-11 m ahead)
+const VISIBLE_ROAD_M = 9
+
+function framesToConfirm(frameIntervalMs, speedKmh) {
+  // Speed unknown (no GPS fix): be lenient on slow devices, which may be moving fast
+  if (speedKmh == null) return frameIntervalMs < 350 ? 3 : frameIntervalMs < 800 ? 2 : 1
+  // A pothole crosses the visible stretch quickly at speed (about 0.5 s at 60 km/h): ask for at most
+  // half the frames it will be visible in, so it is confirmed before it passes; up to 3 when walking
+  const metresPerSecond = Math.max(1, speedKmh / 3.6)
+  const framesVisible = (VISIBLE_ROAD_M / metresPerSecond) * (1000 / frameIntervalMs)
+  return Math.max(1, Math.min(3, Math.floor(framesVisible / 2)))
+}
+
+/** Point `meters` ahead of (lat, lng) along compass heading `headingDeg`. */
+function projectAhead(lat, lng, headingDeg, meters) {
+  const R = 6371000
+  const bearing = (headingDeg * Math.PI) / 180
+  const dLat = (meters * Math.cos(bearing)) / R
+  const dLng = (meters * Math.sin(bearing)) / (R * Math.cos((lat * Math.PI) / 180))
+  return [lat + (dLat * 180) / Math.PI, lng + (dLng * 180) / Math.PI]
+}
+
+function bearingDeg(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180
+  const y = Math.sin(toRad(lng2 - lng1)) * Math.cos(toRad(lat2))
+  const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) - Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(toRad(lng2 - lng1))
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360
+}
+
+/**
+ * How well a detection continues a track: box overlap, or (for slow frame rates, where a pothole
+ * moves far between frames) a nearby centre. Returns 0 for no match.
+ */
+function trackMatchScore(trackBox, box) {
+  const overlap = iou(trackBox, box)
+  if (overlap >= TRACK_IOU_MATCH) return 1 + overlap
+  const size = Math.max(trackBox[2] - trackBox[0], trackBox[3] - trackBox[1], 1)
+  const dx = (trackBox[0] + trackBox[2]) / 2 - (box[0] + box[2]) / 2
+  const dy = (trackBox[1] + trackBox[3]) / 2 - (box[1] + box[3]) / 2
+  const distance = Math.hypot(dx, dy) / size
+  return distance <= 1.5 ? 1 - distance / 1.5 : 0
+}
 // Recorded potholes closer than this (metres) are treated as the same pothole
 const DUPLICATE_RADIUS_M = 5
 
@@ -71,6 +117,7 @@ function enrichDetection(det, frameW, frameH, camera, speedKmh, roadClass) {
     ...det,
     depth_cm: depthCm,
     width_mm: ground?.widthMm ?? null,
+    distance_m: ground?.distanceM ?? null,
     area_m2: ground?.areaM2 ?? null,
     severity: cls.severity,
     risk_score: cls.sizeIndex,
@@ -151,7 +198,7 @@ const SEVERITY_COLOR = {
 }
 
 // Default detection confidence; lower values catch more potholes but also more false positives
-const DEFAULT_CONFIDENCE = 0.55
+const DEFAULT_CONFIDENCE = 0.4
 
 function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {} }) {
   const videoRef = useRef(null)
@@ -193,12 +240,14 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const [modelProgress, setModelProgress] = useState(null)
   const [engineError, setEngineError] = useState(null)
   const [inferenceMs, setInferenceMs] = useState(null)
+  const [computeBackend, setComputeBackend] = useState(null)
+  const frameIntervalRef = useRef(0)
 
   // Detection Sensitivity / Confidence Filter
   const [confThreshold, setConfThreshold] = useState(DEFAULT_CONFIDENCE)
 
   // Live Telemetry & GPS (raw, unrounded values)
-  const [gps, setGps] = useState({ lat: null, lng: null, speedKmh: null, accuracy: null, timestamp: null })
+  const [gps, setGps] = useState({ lat: null, lng: null, speedKmh: null, headingDeg: null, accuracy: null, timestamp: null })
   // 'locating' | 'locked' | 'denied' | 'unavailable' | 'unsupported' | 'insecure'
   const [gpsStatus, setGpsStatus] = useState('locating')
   const [now, setNow] = useState(() => Date.now())
@@ -296,7 +345,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   // Fresh requests (maximumAge <= 1s) are timed on arrival: device GPS clocks can be skewed from system time.
   // Possibly-cached coarse fixes keep their own (older) timestamp so they read as stale.
   const acceptFix = useCallback((pos, mayBeCached = false) => {
-    const { latitude, longitude, accuracy, speed } = pos.coords
+    const { latitude, longitude, accuracy, speed, heading } = pos.coords
     const timestamp = mayBeCached ? Math.min(pos.timestamp || 0, Date.now()) : Date.now()
 
     setGps((prev) => {
@@ -307,15 +356,17 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       }
 
       let speedKmh = speed != null && !Number.isNaN(speed) ? Math.round(speed * 3.6) : null
-      // Many devices never report coords.speed; derive it from consecutive fixes
-      if (speedKmh == null && prev.lat != null && prev.timestamp && timestamp > prev.timestamp) {
+      let headingDeg = heading != null && Number.isFinite(heading) ? heading : null
+      // Many devices never report coords.speed/heading; derive them from consecutive fixes
+      if (prev.lat != null && prev.timestamp && timestamp > prev.timestamp) {
         const dt = (timestamp - prev.timestamp) / 1000
         const d = distanceMeters(prev.lat, prev.lng, latitude, longitude)
-        if (dt >= 1 && d > accuracy) speedKmh = Math.round((d / dt) * 3.6)
-        else if (dt >= 1) speedKmh = 0
+        if (speedKmh == null && dt >= 1) speedKmh = d > accuracy ? Math.round((d / dt) * 3.6) : 0
+        if (headingDeg == null && d > accuracy) headingDeg = bearingDeg(prev.lat, prev.lng, latitude, longitude)
+        if (headingDeg == null && d <= accuracy) headingDeg = prev.headingDeg ?? null
       }
 
-      return { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), speedKmh, timestamp }
+      return { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), speedKmh, headingDeg, timestamp }
     })
     setGpsStatus('locked')
 
@@ -554,7 +605,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     if (!cameraActive || engine === 'loading') return
 
     let isMounted = true
-    const confirmFrames = CONFIRM_FRAMES[engine]
+    let lastFrameAt = 0
 
     const resolveLocation = (fix, auditId) => {
       if (isFixFresh(fix)) {
@@ -572,7 +623,15 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       return { latitude: null, longitude: null, locationSource: 'none', gpsAccuracy: null }
     }
 
-    const recordConfirmed = (confirmed, frameCanvas, fix, auditId, activeTrackIds) => {
+    const locateAhead = (loc, fix, det) => {
+      if (loc.locationSource !== 'gps' || fix.headingDeg == null || !(fix.speedKmh >= 5)) return loc
+      const sinceFixM = (fix.speedKmh / 3.6) * Math.min(3, Math.max(0, (Date.now() - fix.timestamp) / 1000))
+      const aheadM = sinceFixM + (det.distance_m ?? 0)
+      const [latitude, longitude] = projectAhead(loc.latitude, loc.longitude, fix.headingDeg, aheadM)
+      return { ...loc, latitude, longitude }
+    }
+
+    const recordConfirmed = (confirmed, frameCanvas, fix, auditId, seenThisFrame) => {
       if (!confirmed.length) return
       // Build entries now: the shared frame canvas is overwritten by the next tick
       const loc = resolveLocation(fix, auditId)
@@ -580,7 +639,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       const candidates = confirmed.map(({ track, det }) => ({
         id: newId(),
         trackId: track.id,
-        ...loc,
+        ...locateAhead(loc, fix, det),
         speedKmh: fix.speedKmh ?? null,
         confidence: Number(det.confidence),
         severity: det.severity,
@@ -601,13 +660,14 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       }))
 
       setSessionPotholes((prev) => {
-        // Same pothole re-acquired after its track was lost: skip if a recorded GPS point is very close
+        // Same pothole seen again under a new track (lost and re-acquired, or a jump between frames at
+        // speed): skip if a recorded pothole that is not in view right now is very close
         const isDuplicate = (entry) =>
           entry.locationSource === 'gps' &&
           prev.some(
             (p) =>
               p.locationSource === 'gps' &&
-              !activeTrackIds.has(p.trackId) &&
+              !seenThisFrame.has(p.trackId) &&
               distanceMeters(p.latitude, p.longitude, entry.latitude, entry.longitude) < DUPLICATE_RADIUS_M
           )
         const additions = candidates.filter((entry) => !isDuplicate(entry))
@@ -648,6 +708,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
         if (engine === 'device') {
           const result = await detectOnDevice(ctx.getImageData(0, 0, offscreenW, offscreenH), confRef.current)
           setInferenceMs(result.inferenceMs)
+          setComputeBackend(result.backend)
           response = {
             detections: result.detections,
             model_mode: ON_DEVICE_MODE,
@@ -685,18 +746,27 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
         // Match detections to tracks across frames; record only once confirmed
         const t = Date.now()
-        const tracks = tracksRef.current.filter((tr) => t - tr.lastSeen <= TRACK_TTL_MS)
+        if (lastFrameAt) {
+          // Smoothed time between processed frames drives how strict confirmation is
+          const interval = t - lastFrameAt
+          frameIntervalRef.current = frameIntervalRef.current ? frameIntervalRef.current * 0.7 + interval * 0.3 : interval
+        }
+        lastFrameAt = t
+        const frameInterval = frameIntervalRef.current || INFERENCE_INTERVAL_MS[engine]
+        const confirmFrames = framesToConfirm(frameInterval, fix.speedKmh)
+        const ttl = Math.max(TRACK_TTL_MS, frameInterval * 3)
+        const tracks = tracksRef.current.filter((tr) => t - tr.lastSeen <= ttl)
         const confirmed = []
         detections.forEach((det) => {
           if (!Array.isArray(det?.box) || det.box.length !== 4) return
           let track = null
-          let bestIou = TRACK_IOU_MATCH
+          let bestScore = 0
           tracks.forEach((tr) => {
             if (tr.lastSeen === t) return // already matched in this frame
-            const score = iou(tr.box, det.box)
-            if (score >= bestIou) {
+            const score = trackMatchScore(tr.box, det.box)
+            if (score > bestScore) {
               track = tr
-              bestIou = score
+              bestScore = score
             }
           })
           if (!track) {
@@ -719,7 +789,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           }
         })
         tracksRef.current = tracks
-        recordConfirmed(confirmed, offscreen, fix, auditId, new Set(tracks.map((tr) => tr.id)))
+        recordConfirmed(confirmed, offscreen, fix, auditId, new Set(tracks.filter((tr) => tr.lastSeen === t).map((tr) => tr.id)))
       } catch (err) {
         console.warn('Detection error:', err.message)
         if (isMounted) {
@@ -862,7 +932,10 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const modelLabel = (() => {
     if (engine === 'loading') return `Loading model${modelProgress != null ? ` ${modelProgress}%` : '…'}`
     if (isSimulation) return 'Simulation'
-    if (modelMode === ON_DEVICE_MODE) return `On-device${inferenceMs != null ? ` · ${inferenceMs} ms` : ''}`
+    if (modelMode === ON_DEVICE_MODE) {
+      const where = computeBackend === 'gpu' ? 'GPU' : 'CPU'
+      return `On-device ${where}${inferenceMs != null ? ` · ${inferenceMs} ms` : ''}`
+    }
     if (modelMode) return 'Server'
     return engine === 'device' ? 'On-device' : 'Server'
   })()
@@ -916,6 +989,9 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                     <span className="text-white/50">·</span>
                     <span className={isSimulation ? 'text-amber-300' : 'text-white/80'}>{modelLabel}</span>
                   </span>
+                  {videoDims.height > videoDims.width && (
+                    <span className="hud-chip text-amber-200">Turn the phone sideways for better detection</span>
+                  )}
                   {(detectError || humanWarning) && (
                     <span className={`hud-chip ${detectError ? 'text-red-200' : 'text-amber-200'}`}>
                       <IconAlert className="size-3.5" />
@@ -1100,7 +1176,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 ? `${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'}` +
                   `${essentialCount ? ` · ${essentialCount} essential` : ''}` +
                   `${surveyDistanceM ? ` · ${surveyDistanceM} m surveyed` : ''}`
-                : `Recorded after ${CONFIRM_FRAMES[engine === 'server' ? 'server' : 'device']} consecutive frames.`}
+                : 'A pothole is recorded once it is confirmed in consecutive frames.'}
             </p>
           </div>
           {sessionPotholes.length > 0 && (

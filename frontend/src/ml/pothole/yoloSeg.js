@@ -1,10 +1,11 @@
 /**
- * Pre/post-processing for the YOLOv8-seg pothole model exported to ONNX with dynamic shapes
+ * Pre/post-processing for the YOLO26n-seg pothole model exported to ONNX with dynamic shapes (one-to-many head)
  * (input [1,3,H,W], output0 [1,37,N] = cx,cy,w,h,score,32 mask coeffs, output1 [1,32,H/4,W/4] protos).
  * Mirrors Ultralytics' letterbox -> NMS -> process_mask -> masks2segments pipeline.
  */
 
-export const MODEL_SIZE = 480
+// The model was trained at 640 px; running at the training size detects noticeably more potholes
+export const MODEL_SIZE = 640
 const STRIDE = 32
 const PAD_VALUE = 114 / 255
 const NUM_MASK_COEFFS = 32
@@ -173,7 +174,7 @@ function maskPolygon(coeffs, protos, protoH, protoW, modelBox, meta) {
 /**
  * Decodes raw model outputs into detections in original-frame pixel coordinates.
  */
-export function decodeSegmentation(output0, dims0, output1, dims1, meta, { confThreshold = 0.55, iouThreshold = 0.7, maxDet = 30 } = {}) {
+export function decodeSegmentation(output0, dims0, output1, dims1, meta, { confThreshold = 0.4, iouThreshold = 0.7, maxDet = 30 } = {}) {
   const numChannels = dims0[1]
   const numAnchors = dims0[2]
   const [, , protoH, protoW] = dims1

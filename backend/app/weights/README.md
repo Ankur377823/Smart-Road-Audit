@@ -1,6 +1,6 @@
 # YOLO Model Weights Directory
 
-`best.pt` is the trained YOLOv8 segmentation model (single class: `pothole`).
+`best.pt` is the trained YOLO26n-seg segmentation model (single class: `pothole`, trained at 640 px).
 
 ## Browser model (used in production)
 

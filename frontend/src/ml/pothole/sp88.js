@@ -10,7 +10,9 @@
  * SP:88 treats this as a qualitative judgement by the audit team. This module gives a transparent,
  * rule-based starting point: likelihood from the IRC:82-2015 size class (a larger, deeper pothole is
  * more likely to cause loss of control, especially for two-wheelers) and consequence from the
- * speed of traffic. Mirrored in backend/app/services/sp88.py; keep the two in sync.
+ * speed of traffic using the road. The surveyor's own speed is not the traffic speed (a walking or
+ * slow-driving auditor would understate it), so the higher of the GPS speed and the typical speed
+ * for the road class is used. Mirrored in backend/app/services/sp88.py; keep the two in sync.
  */
 
 export const SP88_REFERENCE = 'IRC:SP:88-2019'
@@ -48,18 +50,19 @@ function speedBand(speedKmh) {
 
 /**
  * @param severity   IRC:82 size class stored as 'minor' | 'moderate' | 'severe'
- * @param speedKmh   vehicle speed when the pothole was recorded (GPS), if moving
- * @param roadClass  audit road class, used for a typical speed when GPS speed is unavailable
+ * @param speedKmh   surveyor's speed when the pothole was recorded (GPS), if known
+ * @param roadClass  audit road class, giving the typical traffic speed
  */
 export function assessRisk({ severity, speedKmh, roadClass }) {
-  const measured = speedKmh != null && speedKmh >= 5
-  const basisSpeed = measured ? speedKmh : ROAD_CLASS_SPEED_KMH[roadClass] ?? ROAD_CLASS_SPEED_KMH.collector
+  const typical = ROAD_CLASS_SPEED_KMH[roadClass] ?? ROAD_CLASS_SPEED_KMH.collector
+  const gpsFaster = speedKmh != null && speedKmh > typical
+  const basisSpeed = gpsFaster ? speedKmh : typical
   const riskLevel = RISK_MATRIX[severity]?.[speedBand(basisSpeed)] ?? 'Medium'
 
   return {
     riskLevel,
     priority: PRIORITY_FOR_RISK[riskLevel],
-    speedBasis: measured ? `${Math.round(basisSpeed)} km/h (GPS)` : `${basisSpeed} km/h (typical for ${roadClass || 'collector'} road)`,
+    speedBasis: gpsFaster ? `${Math.round(basisSpeed)} km/h (GPS)` : `${typical} km/h (typical for ${roadClass || 'collector'} road)`,
   }
 }
 
