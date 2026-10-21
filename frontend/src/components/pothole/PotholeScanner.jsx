@@ -204,8 +204,17 @@ const SEVERITY_COLOR = {
   minor: 'rgb(56, 189, 248)',
 }
 
-// Default detection confidence; lower values catch more potholes but also more false positives
-const DEFAULT_CONFIDENCE = 0.4
+// Default detection confidence: lower catches more potholes but lets borderline non-road objects in
+const DEFAULT_CONFIDENCE = 0.5
+
+// Where a pothole was recorded in the frame is remembered for this long after it was last seen, so a
+// detection that flickers in and out is not recorded again: long when standing still, short when moving
+// (new potholes keep entering the view and the old one leaves it)
+const RECORDED_MEMORY_STILL_MS = 60000
+const RECORDED_MEMORY_MOVING_MS = 3000
+const RECORDED_MEMORY_IOU = 0.3
+// Largest plausible pothole width; anything wider on the ground plane is not a pothole
+const MAX_POTHOLE_WIDTH_MM = 4000
 
 function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {} }) {
   const videoRef = useRef(null)
@@ -215,6 +224,8 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const watchIdRef = useRef(null)
   const heartbeatRef = useRef(null)
   const tracksRef = useRef([])
+  // Frame positions of recorded potholes: [{ trackId, box, lastSeen }]
+  const recordedMemoryRef = useRef([])
   const wakeLockRef = useRef(null)
 
   const isSecure = typeof window === 'undefined' || window.isSecureContext
@@ -811,13 +822,27 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
         const roadClass = auditsRef.current.find((a) => String(a.id) === String(auditId))?.road_class ?? null
         const camera = { heightM: cameraHeightRef.current, pitchDeg: pitchRef.current ?? DEFAULT_PITCH_DEG }
-        const detections = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
+        const enriched = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
           enrichDetection(det, offscreenW, offscreenH, camera, fix.speedKmh, roadClass)
         )
+        // With a sensor-measured tilt, a real pothole lies on the road surface: below the horizon, within
+        // range and of plausible size. Objects at eye level (walls, people, things hanging on fences) fail
+        const tiltKnown = pitchRef.current != null
+        const detections = enriched.filter(
+          (det) => !tiltKnown || (det.width_mm != null && det.width_mm <= MAX_POTHOLE_WIDTH_MM)
+        )
+        const offRoad = enriched.length - detections.length
+        const filteredCount = (response?.human_detected ? 1 : 0) + offRoad
         setCurrentDetections(detections)
         setModelMode(response?.model_mode || '')
         setDetectError(null)
-        setHumanWarning(response?.human_detected ? response?.warning_message || 'Non-road object filtered' : null)
+        setHumanWarning(
+          filteredCount
+            ? offRoad
+              ? `${offRoad} object(s) not on the road surface ignored`
+              : response?.warning_message || 'Non-road object filtered'
+            : null
+        )
 
         // Synthetic detections are never recorded
         if (response?.model_mode === SIMULATION_MODE) {
@@ -864,11 +889,32 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           ) {
             track.bestDet = det
           }
-          if (!track.recorded && track.hits >= confirmFrames) {
+          if (track.recorded) {
+            const memory = recordedMemoryRef.current.find((m) => m.trackId === track.id)
+            if (memory) {
+              memory.box = det.box
+              memory.lastSeen = t
+            }
+          } else if (track.hits >= confirmFrames) {
             track.recorded = true
-            confirmed.push({ track, det: track.bestDet })
+            // Same place in the frame as a pothole recorded moments ago (it flickered out and back in):
+            // continue that record instead of creating a new one
+            const moving = fix.speedKmh != null && fix.speedKmh >= STATIONARY_KMH
+            const memoryWindow = moving ? RECORDED_MEMORY_MOVING_MS : RECORDED_MEMORY_STILL_MS
+            const previous = recordedMemoryRef.current.find(
+              (m) => t - m.lastSeen <= memoryWindow && iou(m.box, det.box) >= RECORDED_MEMORY_IOU
+            )
+            if (previous) {
+              previous.trackId = track.id
+              previous.box = det.box
+              previous.lastSeen = t
+            } else {
+              recordedMemoryRef.current.push({ trackId: track.id, box: det.box, lastSeen: t })
+              confirmed.push({ track, det: track.bestDet })
+            }
           }
         })
+        recordedMemoryRef.current = recordedMemoryRef.current.filter((m) => t - m.lastSeen <= RECORDED_MEMORY_STILL_MS)
         tracksRef.current = tracks
         recordConfirmed(confirmed, offscreen, fix, auditId, new Set(tracks.filter((tr) => tr.lastSeen === t).map((tr) => tr.id)))
       } catch (err) {
@@ -943,6 +989,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setSessionPotholes([])
     setCurrentDetections([])
     tracksRef.current = []
+    recordedMemoryRef.current = []
     surveyRef.current = { last: null, total: 0 }
     setSurveyDistanceM(0)
     setScanEnded(false)

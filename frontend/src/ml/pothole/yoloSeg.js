@@ -174,7 +174,7 @@ function maskPolygon(coeffs, protos, protoH, protoW, modelBox, meta) {
 /**
  * Decodes raw model outputs into detections in original-frame pixel coordinates.
  */
-export function decodeSegmentation(output0, dims0, output1, dims1, meta, { confThreshold = 0.4, iouThreshold = 0.7, maxDet = 30 } = {}) {
+export function decodeSegmentation(output0, dims0, output1, dims1, meta, { confThreshold = 0.5, iouThreshold = 0.7, maxDet = 30 } = {}) {
   const numChannels = dims0[1]
   const numAnchors = dims0[2]
   const [, , protoH, protoW] = dims1
