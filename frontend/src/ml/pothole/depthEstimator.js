@@ -177,9 +177,8 @@ export function estimatePotholeDepth(rgba, width, height, polygon, box) {
   const depthCm = Math.round(Math.min(15.0, Math.max(1.0, computedDepth)) * 10) / 10
 
   // A pothole must be a depression: a noticeably brighter interior is not a cavity
-  // Only reject interiors much brighter than the road (markings, reflections): real potholes are often
-  // lighter inside than the asphalt around them (dusty gravel or soil exposed at the bottom)
-  const isValidCavity = !(outerMean > 15.0 && innerMean > outerMean * 1.5)
+  // 1.25 rather than 1.15: wet or sunlit potholes are often slightly brighter than the road around them
+  const isValidCavity = !(outerMean > 15.0 && innerMean > outerMean * 1.25)
 
   return {
     depth_cm: depthCm,

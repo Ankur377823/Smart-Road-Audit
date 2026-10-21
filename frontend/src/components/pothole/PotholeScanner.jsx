@@ -6,8 +6,7 @@ import { SEVERITY_TONE } from './severity'
 import { CAMERA_HEIGHTS, DEFAULT_PITCH_DEG, measureOnGround, pitchFromOrientation } from '../../ml/pothole/groundGeometry'
 import { classifyPothole, defaultCategoryForRoadClass, DEFAULT_CARRIAGEWAY_WIDTH_M, IRC_CLASS_LABEL } from '../../ml/pothole/irc82'
 import { assessRisk } from '../../ml/pothole/sp88'
-import { canShowPdfInTab, openPotholeReport, openReportWindow } from '../../utils/potholeReport'
-import { clearScanSession, loadScanSession, storeScanSession } from '../../services/scanSessionStore'
+import { openPotholeReport, openReportWindow } from '../../utils/potholeReport'
 import { detectOnDevice, isOnDeviceSupported, loadOnDeviceDetector } from '../../ml/pothole/onDeviceDetector'
 import { Badge, Notice, PageHeader } from '../common/ui'
 import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconStop, IconTrash } from '../common/Icons'
@@ -78,14 +77,8 @@ function trackMatchScore(trackBox, box) {
   const distance = Math.hypot(dx, dy) / size
   return distance <= 1.5 ? 1 - distance / 1.5 : 0
 }
-// Recorded potholes closer than this (metres) are treated as the same pothole...
+// Recorded potholes closer than this (metres) are treated as the same pothole
 const DUPLICATE_RADIUS_M = 5
-// ...but only when both positions are this accurate; with poor GPS, distinct potholes share a position
-const DUPLICATE_MAX_ACCURACY_M = 15
-// During a GPS dropout the last fix is still used for this long, with its accuracy widened honestly
-const LAST_FIX_MAX_AGE_MS = 60000
-// Walking pace, assumed for widening the accuracy of an old fix when speed is unknown
-const FALLBACK_SPEED_MPS = 1.5
 
 const SEVERITY_RANK = { minor: 0, moderate: 1, severe: 2 }
 
@@ -204,17 +197,8 @@ const SEVERITY_COLOR = {
   minor: 'rgb(56, 189, 248)',
 }
 
-// Default detection confidence: lower catches more potholes but lets borderline non-road objects in
-const DEFAULT_CONFIDENCE = 0.55
-
-// Where a pothole was recorded in the frame is remembered for this long after it was last seen, so a
-// detection that flickers in and out is not recorded again: long when standing still, short when moving
-// (new potholes keep entering the view and the old one leaves it)
-const RECORDED_MEMORY_STILL_MS = 60000
-const RECORDED_MEMORY_MOVING_MS = 3000
-const RECORDED_MEMORY_IOU = 0.3
-// Largest plausible pothole width; anything wider on the ground plane is not a pothole
-const MAX_POTHOLE_WIDTH_MM = 4000
+// Default detection confidence; lower values catch more potholes but also more false positives
+const DEFAULT_CONFIDENCE = 0.4
 
 function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {} }) {
   const videoRef = useRef(null)
@@ -224,8 +208,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const watchIdRef = useRef(null)
   const heartbeatRef = useRef(null)
   const tracksRef = useRef([])
-  // Frame positions of recorded potholes: [{ trackId, box, lastSeen }]
-  const recordedMemoryRef = useRef([])
   const wakeLockRef = useRef(null)
 
   const isSecure = typeof window === 'undefined' || window.isSecureContext
@@ -285,9 +267,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     return audits[0] ? String(audits[0].id) : ''
   })
   const [saving, setSaving] = useState(false)
-  const [saveProgress, setSaveProgress] = useState(null)
-  // Persisting starts only after any stored session has been restored, so it is never overwritten
-  const [sessionRestored, setSessionRestored] = useState(false)
   const [notice, setNotice] = useState(
     currentAuditId && !audits.some((a) => String(a.id) === String(currentAuditId))
       ? { type: 'warning', text: `Audit #${currentAuditId} was not found. Pick a target audit before saving.` }
@@ -296,63 +275,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
   const gpsRef = useRef(gps)
   gpsRef.current = gps
-
-  // Restore unsaved potholes after a reload, the browser killing the tab, or navigating away
-  useEffect(() => {
-    let cancelled = false
-    loadScanSession().then((stored) => {
-      if (cancelled) return
-      if (stored?.potholes?.length) {
-        setSessionPotholes(stored.potholes)
-        surveyRef.current = { last: null, total: stored.surveyDistanceM || 0 }
-        setSurveyDistanceM(stored.surveyDistanceM || 0)
-        if (!currentAuditId && stored.auditId && audits.some((a) => String(a.id) === String(stored.auditId))) {
-          setSelectedAuditId(String(stored.auditId))
-        }
-        setScanEnded(true)
-        setNotice({
-          type: 'warning',
-          text: `Restored ${stored.potholes.length} unsaved pothole${stored.potholes.length === 1 ? '' : 's'} from your last scan. Save them to an audit or clear them.`,
-        })
-      }
-      setSessionRestored(true)
-    })
-    return () => {
-      cancelled = true
-    }
-    // Runs once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Back up the unsaved session on the phone (debounced: survey distance changes every GPS fix)
-  const backupWarnedRef = useRef(false)
-  useEffect(() => {
-    if (!sessionRestored) return
-    const timer = setTimeout(() => {
-      if (!sessionPotholes.length) {
-        clearScanSession()
-        return
-      }
-      storeScanSession({ potholes: sessionPotholes, surveyDistanceM, auditId: selectedAuditId }).then((ok) => {
-        if (!ok && !backupWarnedRef.current) {
-          backupWarnedRef.current = true
-          setNotice({ type: 'warning', text: 'Phone storage is full, so unsaved potholes are not backed up. Save to the audit soon.' })
-        }
-      })
-    }, 1500)
-    return () => clearTimeout(timer)
-  }, [sessionPotholes, surveyDistanceM, selectedAuditId, sessionRestored])
-
-  // Warn before closing or reloading the page with unsaved potholes
-  useEffect(() => {
-    if (!sessionPotholes.length) return
-    const onBeforeUnload = (event) => {
-      event.preventDefault()
-      event.returnValue = ''
-    }
-    window.addEventListener('beforeunload', onBeforeUnload)
-    return () => window.removeEventListener('beforeunload', onBeforeUnload)
-  }, [sessionPotholes.length])
 
   const isSimulation = modelMode === SIMULATION_MODE
   const fixAgeMs = gps.timestamp ? now - gps.timestamp : null
@@ -635,8 +557,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       const angle = window.screen?.orientation?.angle ?? window.orientation ?? 0
       const pitch = pitchFromOrientation(event, angle)
       if (pitch != null) {
-        // Smooth hand shake so width/area don't jump between frames
-        pitchRef.current = pitchRef.current == null ? pitch : pitchRef.current * 0.8 + pitch * 0.2
+        pitchRef.current = pitch
         setPitchSource('sensor')
       }
     }
@@ -690,18 +611,6 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       if (isFixFresh(fix)) {
         return { latitude: fix.lat, longitude: fix.lng, locationSource: 'gps', gpsAccuracy: fix.accuracy }
       }
-      // GPS dropout (trees, flyovers, narrow lanes): keep using the last fix for a while, widening its
-      // accuracy by how far the surveyor could have moved since, so the report shows the real uncertainty
-      const ageMs = fix.timestamp ? Date.now() - fix.timestamp : Infinity
-      if (fix.lat != null && ageMs <= LAST_FIX_MAX_AGE_MS) {
-        const speedMps = fix.speedKmh != null && fix.speedKmh > 0 ? fix.speedKmh / 3.6 : FALLBACK_SPEED_MPS
-        return {
-          latitude: fix.lat,
-          longitude: fix.lng,
-          locationSource: 'gps',
-          gpsAccuracy: Math.round((fix.accuracy || 0) + speedMps * (ageMs / 1000)),
-        }
-      }
       const audit = auditsRef.current.find((a) => String(a.id) === String(auditId))
       if (audit?.center_lat != null && audit?.center_lng != null) {
         return {
@@ -753,12 +662,11 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       setSessionPotholes((prev) => {
         // Same pothole seen again under a new track (lost and re-acquired, or a jump between frames at
         // speed): skip if a recorded pothole that is not in view right now is very close
-        const accurate = (p) => p.locationSource === 'gps' && p.gpsAccuracy != null && p.gpsAccuracy <= DUPLICATE_MAX_ACCURACY_M
         const isDuplicate = (entry) =>
-          accurate(entry) &&
+          entry.locationSource === 'gps' &&
           prev.some(
             (p) =>
-              accurate(p) &&
+              p.locationSource === 'gps' &&
               !seenThisFrame.has(p.trackId) &&
               distanceMeters(p.latitude, p.longitude, entry.latitude, entry.longitude) < DUPLICATE_RADIUS_M
           )
@@ -822,27 +730,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
         const roadClass = auditsRef.current.find((a) => String(a.id) === String(auditId))?.road_class ?? null
         const camera = { heightM: cameraHeightRef.current, pitchDeg: pitchRef.current ?? DEFAULT_PITCH_DEG }
-        const enriched = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
+        const detections = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
           enrichDetection(det, offscreenW, offscreenH, camera, fix.speedKmh, roadClass)
         )
-        // With a sensor-measured tilt, a real pothole lies on the road surface: below the horizon, within
-        // range and of plausible size. Objects at eye level (walls, people, things hanging on fences) fail
-        const tiltKnown = pitchRef.current != null
-        const detections = enriched.filter(
-          (det) => !tiltKnown || (det.width_mm != null && det.width_mm <= MAX_POTHOLE_WIDTH_MM)
-        )
-        const offRoad = enriched.length - detections.length
-        const filteredCount = (response?.human_detected ? 1 : 0) + offRoad
         setCurrentDetections(detections)
         setModelMode(response?.model_mode || '')
         setDetectError(null)
-        setHumanWarning(
-          filteredCount
-            ? offRoad
-              ? `${offRoad} object(s) not on the road surface ignored`
-              : response?.warning_message || 'Non-road object filtered'
-            : null
-        )
+        setHumanWarning(response?.human_detected ? response?.warning_message || 'Non-road object filtered' : null)
 
         // Synthetic detections are never recorded
         if (response?.model_mode === SIMULATION_MODE) {
@@ -889,32 +783,11 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           ) {
             track.bestDet = det
           }
-          if (track.recorded) {
-            const memory = recordedMemoryRef.current.find((m) => m.trackId === track.id)
-            if (memory) {
-              memory.box = det.box
-              memory.lastSeen = t
-            }
-          } else if (track.hits >= confirmFrames) {
+          if (!track.recorded && track.hits >= confirmFrames) {
             track.recorded = true
-            // Same place in the frame as a pothole recorded moments ago (it flickered out and back in):
-            // continue that record instead of creating a new one
-            const moving = fix.speedKmh != null && fix.speedKmh >= STATIONARY_KMH
-            const memoryWindow = moving ? RECORDED_MEMORY_MOVING_MS : RECORDED_MEMORY_STILL_MS
-            const previous = recordedMemoryRef.current.find(
-              (m) => t - m.lastSeen <= memoryWindow && iou(m.box, det.box) >= RECORDED_MEMORY_IOU
-            )
-            if (previous) {
-              previous.trackId = track.id
-              previous.box = det.box
-              previous.lastSeen = t
-            } else {
-              recordedMemoryRef.current.push({ trackId: track.id, box: det.box, lastSeen: t })
-              confirmed.push({ track, det: track.bestDet })
-            }
+            confirmed.push({ track, det: track.bestDet })
           }
         })
-        recordedMemoryRef.current = recordedMemoryRef.current.filter((m) => t - m.lastSeen <= RECORDED_MEMORY_STILL_MS)
         tracksRef.current = tracks
         recordConfirmed(confirmed, offscreen, fix, auditId, new Set(tracks.filter((tr) => tr.lastSeen === t).map((tr) => tr.id)))
       } catch (err) {
@@ -955,10 +828,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setNotice(null)
 
     try {
-      const result = await savePotholesToAudit(selectedAuditId, sessionPotholes, (done, total) =>
-        setSaveProgress({ done, total })
-      )
-      await clearScanSession()
+      const result = await savePotholesToAudit(selectedAuditId, sessionPotholes)
       const savedCount = result?.saved?.length ?? sessionPotholes.length
       const skipped = result?.skipped_duplicates ?? 0
       setNotice({
@@ -968,38 +838,20 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       })
       onSaved(selectedAuditId)
     } catch (err) {
-      setNotice({
-        type: 'error',
-        text: `Save error: ${err.message}. Your potholes are kept on this phone; try again when the connection is better.`,
-      })
+      setNotice({ type: 'error', text: `Save error: ${err.message}` })
     } finally {
       setSaving(false)
-      setSaveProgress(null)
     }
   }
 
   const handleClearSession = () => {
-    if (
-      sessionPotholes.length &&
-      !window.confirm(`Delete all ${sessionPotholes.length} recorded potholes from this scan? Unsaved potholes cannot be recovered.`)
-    ) {
-      return
-    }
-    clearScanSession()
     setSessionPotholes([])
     setCurrentDetections([])
     tracksRef.current = []
-    recordedMemoryRef.current = []
     surveyRef.current = { last: null, total: 0 }
     setSurveyDistanceM(0)
     setScanEnded(false)
     setNotice(null)
-  }
-
-  // Remove a false detection (a shadow, patch or marking the model mistook for a pothole)
-  const handleDeletePothole = (id, number) => {
-    if (!window.confirm(`Delete pothole ${number} from this scan?`)) return
-    setSessionPotholes((prev) => prev.filter((p) => p.id !== id))
   }
 
   // Stopping a scan shows the summary and the list of recorded potholes
@@ -1027,7 +879,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   }
 
   const handleGenerateReport = async () => {
-    const target = canShowPdfInTab() ? openReportWindow() : null
+    const target = openReportWindow()
     setReportBusy(true)
     try {
       const audit = audits.find((a) => String(a.id) === String(selectedAuditId))
@@ -1304,9 +1156,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
             className="btn btn-primary mt-5 w-full py-3"
           >
             {saving
-              ? saveProgress
-                ? `Saving ${saveProgress.done} of ${saveProgress.total}…`
-                : 'Saving…'
+              ? 'Saving…'
               : sessionPotholes.length
                 ? `Save ${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'} to audit`
                 : 'Save to audit'}
@@ -1408,25 +1258,16 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                     </button>
                   </form>
                 ) : (
-                  <div className="mt-1.5 flex items-center gap-4">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingDepthId(item.id)
-                        setDepthDraft(item.depthSource === 'measured' && item.depth_cm != null ? String(Math.round(item.depth_cm * 10)) : '')
-                      }}
-                      className="py-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
-                    >
-                      {item.depthSource === 'measured' ? 'Edit measured depth' : 'Enter measured depth'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeletePothole(item.id, sessionPotholes.length - idx)}
-                      className="py-1 text-xs font-semibold text-red-600 hover:text-red-700"
-                    >
-                      Delete
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDepthId(item.id)
+                      setDepthDraft(item.depthSource === 'measured' && item.depth_cm != null ? String(Math.round(item.depth_cm * 10)) : '')
+                    }}
+                    className="mt-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    {item.depthSource === 'measured' ? 'Edit measured depth' : 'Enter measured depth'}
+                  </button>
                 )}
               </li>
             ))}

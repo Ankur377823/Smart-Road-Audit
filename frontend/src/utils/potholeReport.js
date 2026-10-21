@@ -220,14 +220,6 @@ export async function openPotholeReport({ title, subtitle, potholes, survey, tar
   }
 }
 
-/**
- * Chrome on Android has no reliable in-tab PDF viewer, so there the report is downloaded instead (the
- * phone offers to open it from the download notification). Desktop and iOS browsers show it in a tab.
- */
-export function canShowPdfInTab() {
-  return typeof navigator === 'undefined' || !/Android/i.test(navigator.userAgent)
-}
-
 /** Opens a placeholder tab synchronously (inside the click) so the PDF can be shown when ready. */
 export function openReportWindow() {
   const win = window.open('', '_blank')

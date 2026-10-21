@@ -64,9 +64,8 @@ def estimate_pothole_depth(
         depth_cm = round(min(15.0, max(1.0, intensity_depression * 8.0 + normalized_roughness * 3.5)), 1)
 
         # A pothole must be a depression: a noticeably brighter interior is not a cavity
-        # Only reject interiors much brighter than the road (markings, reflections): real potholes are often
-        # lighter inside than the asphalt around them (dusty gravel or soil exposed at the bottom)
-        is_valid_cavity = not (outer_mean > 15.0 and inner_mean > outer_mean * 1.5)
+        # 1.25 rather than 1.15: wet or sunlit potholes are often slightly brighter than the road around them
+        is_valid_cavity = not (outer_mean > 15.0 and inner_mean > outer_mean * 1.25)
 
         return {
             "depth_cm": depth_cm,

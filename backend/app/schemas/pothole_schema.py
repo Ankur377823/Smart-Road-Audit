@@ -30,7 +30,7 @@ class DetectionItem(BaseModel):
 
 class PotholeDetectRequest(BaseModel):
     image_base64: str = Field(..., max_length=MAX_FRAME_BASE64_CHARS, description="Base64 encoded JPEG/PNG frame from camera")
-    conf_threshold: float = Field(0.55, ge=0.1, le=0.95, description="Confidence threshold filter")
+    conf_threshold: float = Field(0.4, ge=0.1, le=0.95, description="Confidence threshold filter")
     latitude: float | None = Field(None, ge=-90, le=90)
     longitude: float | None = Field(None, ge=-180, le=180)
     speed_kmh: float | None = None

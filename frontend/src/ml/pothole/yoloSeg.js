@@ -4,8 +4,8 @@
  * Mirrors Ultralytics' letterbox -> NMS -> process_mask -> masks2segments pipeline.
  */
 
-// Model input size (long side). 480 px keeps detections conservative and frames fast on phones.
-export const MODEL_SIZE = 480
+// The model was trained at 640 px; running at the training size detects noticeably more potholes
+export const MODEL_SIZE = 640
 const STRIDE = 32
 const PAD_VALUE = 114 / 255
 const NUM_MASK_COEFFS = 32
@@ -174,7 +174,7 @@ function maskPolygon(coeffs, protos, protoH, protoW, modelBox, meta) {
 /**
  * Decodes raw model outputs into detections in original-frame pixel coordinates.
  */
-export function decodeSegmentation(output0, dims0, output1, dims1, meta, { confThreshold = 0.55, iouThreshold = 0.7, maxDet = 30 } = {}) {
+export function decodeSegmentation(output0, dims0, output1, dims1, meta, { confThreshold = 0.4, iouThreshold = 0.7, maxDet = 30 } = {}) {
   const numChannels = dims0[1]
   const numAnchors = dims0[2]
   const [, , protoH, protoW] = dims1
