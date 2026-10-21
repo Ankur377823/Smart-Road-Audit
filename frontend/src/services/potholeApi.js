@@ -2,7 +2,7 @@ import { API_BASE_URL } from './apiBase'
 
 const DETECT_TIMEOUT_MS = 8000
 
-export async function detectPotholes({ imageBase64, confThreshold = 0.5, latitude = null, longitude = null, speedKmh = null, auditId = null }) {
+export async function detectPotholes({ imageBase64, confThreshold = 0.55, latitude = null, longitude = null, speedKmh = null, auditId = null }) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), DETECT_TIMEOUT_MS)
 

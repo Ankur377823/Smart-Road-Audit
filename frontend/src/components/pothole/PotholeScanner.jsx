@@ -205,7 +205,7 @@ const SEVERITY_COLOR = {
 }
 
 // Default detection confidence: lower catches more potholes but lets borderline non-road objects in
-const DEFAULT_CONFIDENCE = 0.5
+const DEFAULT_CONFIDENCE = 0.55
 
 // Where a pothole was recorded in the frame is remembered for this long after it was last seen, so a
 // detection that flickers in and out is not recorded again: long when standing still, short when moving
