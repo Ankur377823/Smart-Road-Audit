@@ -89,6 +89,11 @@ class AuditSummary(BaseModel):
 
     location_name: str | None
 
+    # Audit centre: the pothole scanner's location fallback when GPS is unavailable
+    center_lat: float | None = None
+
+    center_lng: float | None = None
+
     road_class: str
 
     radius_m: int

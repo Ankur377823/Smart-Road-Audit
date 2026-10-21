@@ -5,7 +5,8 @@
  * it degrades for points near the horizon.
  */
 
-// Typical phone main camera (≈26 mm equivalent) in a 4:3 frame
+// Typical phone main camera (≈26 mm equivalent): field of view across the LONG side of the frame.
+// In portrait the long side is vertical, so the horizontal view is much narrower (about 40-52°).
 export const DEFAULT_HFOV_DEG = 66
 // Used when the device reports no orientation (e.g. desktop webcams)
 export const DEFAULT_PITCH_DEG = 30
@@ -31,7 +32,8 @@ export function pitchFromOrientation({ beta, gamma }, screenAngle = 0) {
 }
 
 function projector(frameW, frameH, { hfovDeg, heightM, pitchDeg }) {
-  const f = frameW / 2 / Math.tan(toRad(hfovDeg) / 2)
+  // Focal length from the long side: correct for landscape and portrait frames alike
+  const f = Math.max(frameW, frameH) / 2 / Math.tan(toRad(hfovDeg) / 2)
   const cx = frameW / 2
   const cy = frameH / 2
   const sin = Math.sin(toRad(pitchDeg))

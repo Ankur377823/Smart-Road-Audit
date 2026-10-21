@@ -6,7 +6,7 @@ import { SEVERITY_TONE } from './severity'
 import { Badge, Section } from '../common/ui'
 import { IconClose, IconFileText, IconScan } from '../common/Icons'
 import { DEFAULT_CARRIAGEWAY_WIDTH_M, defaultCategoryForRoadClass, IRC_CLASS_LABEL, ROAD_CATEGORIES } from '../../ml/pothole/irc82'
-import { computeSectionRating, openPotholeReport, openReportWindow } from '../../utils/potholeReport'
+import { canShowPdfInTab, computeSectionRating, openPotholeReport, openReportWindow } from '../../utils/potholeReport'
 import './pothole.css'
 
 const SEVERITY_PIN = {
@@ -141,7 +141,7 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
   const section = survey ? computeSectionRating(reportPotholes, survey) : null
 
   const handleReport = async () => {
-    const target = openReportWindow()
+    const target = canShowPdfInTab() ? openReportWindow() : null
     setReportBusy(true)
     setReportError('')
     try {
