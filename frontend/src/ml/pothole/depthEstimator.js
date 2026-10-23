@@ -91,7 +91,7 @@ export function estimatePotholeDepth(rgba, width, height, polygon, box) {
 
   // Without a segmentation outline there is nothing to analyse: depth is unknown, not guessed
   if (!polygon || polygon.length < 3) {
-    return { depth_cm: null, is_valid_cavity: true }
+    return { depth_cm: null }
   }
 
   // Elliptical kernel of diameter k: erode once (radius r), dilate twice (radius 2r)
@@ -121,6 +121,7 @@ export function estimatePotholeDepth(rgba, width, height, polygon, box) {
   let maskCount = 0
   let outerSum = 0
   let outerCount = 0
+  let outerChromaSum = 0
   for (let i = 0; i < mask.length; i++) {
     if (mask[i]) {
       maskSum += gray[i]
@@ -132,6 +133,9 @@ export function estimatePotholeDepth(rgba, width, height, polygon, box) {
     } else if (distToForeground[i] <= 2 * r) {
       outerSum += gray[i]
       outerCount++
+      // Colour strength (max - min channel) of the surroundings: asphalt is grey
+      const p = ((ry0 + Math.floor(i / w)) * width + rx0 + (i % w)) * 4
+      outerChromaSum += Math.max(rgba[p], rgba[p + 1], rgba[p + 2]) - Math.min(rgba[p], rgba[p + 1], rgba[p + 2])
     }
   }
   if (!innerCount) {
@@ -176,14 +180,10 @@ export function estimatePotholeDepth(rgba, width, height, polygon, box) {
   const computedDepth = intensityDepression * 8.0 + normalizedRoughness * 3.5
   const depthCm = Math.round(Math.min(15.0, Math.max(1.0, computedDepth)) * 10) / 10
 
-  // A pothole must be a depression: a noticeably brighter interior is not a cavity
-  // 1.25 rather than 1.15: wet or sunlit potholes are often slightly brighter than the road around them
-  const isValidCavity = !(outerMean > 15.0 && innerMean > outerMean * 1.25)
-
   return {
     depth_cm: depthCm,
     roughness_index: Math.round(normalizedRoughness * 100) / 100,
     intensity_depression: Math.round(intensityDepression * 1000) / 1000,
-    is_valid_cavity: isValidCavity,
+    surround_chroma: outerCount ? Math.round((outerChromaSum / outerCount) * 10) / 10 : null,
   }
 }

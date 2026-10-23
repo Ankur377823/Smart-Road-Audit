@@ -34,7 +34,7 @@ def estimate_pothole_depth(
 
     # Without a segmentation outline (or OpenCV) there is nothing to analyse: depth is unknown
     if cv2 is None or len(polygon_points) < 3:
-        return {"depth_cm": None, "is_valid_cavity": True}
+        return {"depth_cm": None}
 
     try:
         gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY) if image_np.ndim == 3 else image_np
@@ -55,6 +55,12 @@ def estimate_pothole_depth(
         outer_mean = cv2.mean(gray, mask=outer_ring_mask)[0]
         intensity_depression = max(0.0, (outer_mean - inner_mean) / outer_mean) if outer_mean > 5.0 else 0.2
 
+        # Colour strength (max - min channel) of the surroundings: asphalt is grey
+        surround_chroma = None
+        if image_np.ndim == 3 and cv2.countNonZero(outer_ring_mask):
+            chroma = image_np.max(axis=2).astype(np.int16) - image_np.min(axis=2).astype(np.int16)
+            surround_chroma = float(chroma[outer_ring_mask > 0].mean())
+
         roi_gray = gray[y1:y2, x1:x2]
         roi_mask = mask[y1:y2, x1:x2]
         laplacian = cv2.Laplacian(roi_gray, cv2.CV_64F)
@@ -63,16 +69,12 @@ def estimate_pothole_depth(
 
         depth_cm = round(min(15.0, max(1.0, intensity_depression * 8.0 + normalized_roughness * 3.5)), 1)
 
-        # A pothole must be a depression: a noticeably brighter interior is not a cavity
-        # 1.25 rather than 1.15: wet or sunlit potholes are often slightly brighter than the road around them
-        is_valid_cavity = not (outer_mean > 15.0 and inner_mean > outer_mean * 1.25)
-
         return {
             "depth_cm": depth_cm,
             "roughness_index": round(normalized_roughness, 2),
             "intensity_depression": round(intensity_depression, 3),
-            "is_valid_cavity": is_valid_cavity,
+            "surround_chroma": round(surround_chroma, 1) if surround_chroma is not None else None,
         }
     except Exception as e:
         print(f"[DepthEstimator] analysis failed: {e}")
-        return {"depth_cm": None, "is_valid_cavity": True}
+        return {"depth_cm": None}

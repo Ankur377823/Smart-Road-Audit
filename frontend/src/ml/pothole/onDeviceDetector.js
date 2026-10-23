@@ -4,6 +4,8 @@
  */
 
 const MODEL_URL = `${import.meta.env.BASE_URL}models/pothole-seg.onnx`
+// INT8 copy of the same model for the CPU (WebAssembly) path
+const CPU_MODEL_URL = `${import.meta.env.BASE_URL}models/pothole-seg-int8.onnx`
 
 let worker = null
 let readyPromise = null
@@ -49,7 +51,12 @@ export function loadOnDeviceDetector(onProgress) {
     readyPromise = new Promise((resolve, reject) => {
       const id = nextId++
       pending.set(id, { resolve, reject })
-      getWorker().postMessage({ type: 'init', id, modelUrl: new URL(MODEL_URL, window.location.href).href })
+      getWorker().postMessage({
+        type: 'init',
+        id,
+        modelUrl: new URL(MODEL_URL, window.location.href).href,
+        cpuModelUrl: new URL(CPU_MODEL_URL, window.location.href).href,
+      })
     }).catch((err) => {
       readyPromise = null
       throw err

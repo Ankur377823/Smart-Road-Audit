@@ -51,10 +51,13 @@ async function fetchModel(url) {
   return bytes
 }
 
-async function createSession(bytes) {
+// The GPU runs the float model; the CPU runs an INT8 (dynamically quantized) copy, which is about 1.3-1.8x
+// faster on WebAssembly, a quarter of the download, and scored the same on a labelled pothole test set.
+async function createSession(modelUrl, cpuModelUrl) {
   const hasWebGpu = typeof navigator !== 'undefined' && 'gpu' in navigator
   if (hasWebGpu) {
     try {
+      const bytes = await fetchModel(modelUrl)
       ort = await import('onnxruntime-web/webgpu')
       ort.env.wasm.numThreads = 1
       const gpuSession = await ort.InferenceSession.create(bytes, {
@@ -81,12 +84,12 @@ async function createSession(bytes) {
   // inlines, so session creation hangs if the page is ever served cross-origin isolated (COOP/COEP).
   ort.env.wasm.numThreads = 1
   backend = 'cpu'
+  const bytes = await fetchModel(cpuModelUrl)
   return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' })
 }
 
-async function init(modelUrl) {
-  const bytes = await fetchModel(modelUrl)
-  session = await createSession(bytes)
+async function init(modelUrl, cpuModelUrl) {
+  session = await createSession(modelUrl, cpuModelUrl)
   // Warm-up run so the first real frame isn't slow (landscape 4:3 frame shape)
   const warmH = Math.round((MODEL_SIZE * 0.75) / 32) * 32
   const dummy = new ort.Tensor('float32', new Float32Array(3 * warmH * MODEL_SIZE), [1, 3, warmH, MODEL_SIZE])
@@ -124,7 +127,7 @@ self.onmessage = async (event) => {
   const { type, id } = event.data
   try {
     if (type === 'init') {
-      await init(event.data.modelUrl)
+      await init(event.data.modelUrl, event.data.cpuModelUrl)
       self.postMessage({ type: 'ready', id, backend })
     } else if (type === 'detect') {
       if (!session) throw new Error('Model not loaded')

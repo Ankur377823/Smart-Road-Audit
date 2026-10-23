@@ -37,6 +37,10 @@ MODEL_PATH = os.path.join(WEIGHTS_DIR, "best.pt")
 MODEL_MODE_YOLO = "yolo_v26_seg"
 MODEL_MODE_SIMULATION = "simulation_demo"
 
+# Mean colour strength of the ring around a detection above which it is treated as off-road.
+# Mirrors MAX_SURROUND_CHROMA in frontend/src/ml/pothole/pipeline.js.
+MAX_SURROUND_CHROMA = 30
+
 _yolo_model = None
 _model_loaded = False
 _ultralytics_missing = False
@@ -103,7 +107,7 @@ class PotholeDetector:
     def detect_in_frame(
         self,
         image_base64: str,
-        conf_threshold: float = 0.4,
+        conf_threshold: float = 0.55,
         latitude: float | None = None,
         longitude: float | None = None,
         speed_kmh: float | None = None,
@@ -122,7 +126,7 @@ class PotholeDetector:
             return self._run_yolo_inference(image, width, height, conf_threshold=conf_threshold)
         return self._run_demo_inference(width, height)
 
-    def _run_yolo_inference(self, image: np.ndarray, width: int, height: int, conf_threshold: float = 0.4) -> dict[str, Any]:
+    def _run_yolo_inference(self, image: np.ndarray, width: int, height: int, conf_threshold: float = 0.55) -> dict[str, Any]:
         # Fast, low-memory YOLO inference optimized for cloud containers & CPU
         grad_ctx = torch.inference_mode() if torch is not None else nullcontext()
         with _inference_lock, grad_ctx:
@@ -172,8 +176,11 @@ class PotholeDetector:
                 if masks is not None and len(masks.xy) > i:
                     polygon = masks.xy[i].tolist()
 
+                # Off-road objects (food, clocks, toys, sky) sit in colourful surroundings; road is grey
+                # or dull earth. No brightness check: water-filled and dusty potholes are often lighter.
                 metrics = estimate_pothole_depth(image, polygon, box)
-                if not metrics.get("is_valid_cavity", True):
+                surround_chroma = metrics.get("surround_chroma")
+                if surround_chroma is not None and surround_chroma > MAX_SURROUND_CHROMA:
                     filtered_non_road += 1
                     continue
                 # Server frames carry no camera geometry, so width is unknown: classify by depth only.

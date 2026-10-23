@@ -198,7 +198,7 @@ const SEVERITY_COLOR = {
 }
 
 // Default detection confidence; lower values catch more potholes but also more false positives
-const DEFAULT_CONFIDENCE = 0.4
+const DEFAULT_CONFIDENCE = 0.55
 
 function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {} }) {
   const videoRef = useRef(null)
