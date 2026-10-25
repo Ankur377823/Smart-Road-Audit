@@ -5,6 +5,7 @@ import {
   getAudit,
   getAuditChecklist,
   getAuditSegments,
+  generateAuditChecklist,
   getSegment,
 } from "../services/api";
 import PotholeReportCard from "../components/pothole/PotholeReportCard";
@@ -20,6 +21,7 @@ function AuditDetails() {
   const [expandedSegmentId, setExpandedSegmentId] = useState(null);
   const [loadingSegmentId, setLoadingSegmentId] = useState(null);
   const [selectedBreakdownSegmentId, setSelectedBreakdownSegmentId] = useState("");
+  const [generatingChecklist, setGeneratingChecklist] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -46,6 +48,20 @@ function AuditDetails() {
       setError(err.message || "Unable to load segment subsections.");
     } finally {
       setLoadingSegmentId(null);
+    }
+  }
+
+  async function handleGenerateChecklist() {
+    try {
+      setGeneratingChecklist(true);
+      setError("");
+      await generateAuditChecklist(auditId);
+      const items = await getAuditChecklist(auditId);
+      setChecklist(items || []);
+    } catch (err) {
+      setError(err.message || "Unable to generate the checklist.");
+    } finally {
+      setGeneratingChecklist(false);
     }
   }
 
@@ -175,6 +191,8 @@ function AuditDetails() {
       total: checklist.length,
       pass: 0,
       fail: 0,
+      review: 0,
+      flagged: 0,
       pending: 0,
       fieldVerification: 0,
     };
@@ -186,6 +204,10 @@ function AuditDetails() {
         stats.pass += 1;
       } else if (itemStatus === "fail") {
         stats.fail += 1;
+      } else if (itemStatus === "review") {
+        stats.review += 1;
+      } else if (itemStatus === "flagged") {
+        stats.flagged += 1;
       } else {
         stats.pending += 1;
       }
@@ -924,11 +946,25 @@ function AuditDetails() {
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Automated screening and field verification requirements.
+                  Automated screening results and items that need field verification. Missing measurements are marked pending.
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleGenerateChecklist}
+                  disabled={generatingChecklist || segments.length === 0}
+                  aria-busy={generatingChecklist}
+                  className="inline-flex min-h-10 items-center justify-center rounded-lg border border-sky-800 bg-sky-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-sky-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 disabled:shadow-none"
+                >
+                  {generatingChecklist
+                    ? "Generating..."
+                    : checklist.length
+                      ? "Regenerate checklist"
+                      : "Generate checklist"}
+                </button>
+
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
                   Total: {checklistStats.total}
                 </span>
@@ -939,6 +975,14 @@ function AuditDetails() {
 
                 <span className="rounded-full bg-red-50 px-3 py-1 text-xs font-medium text-red-700">
                   Fail: {checklistStats.fail}
+                </span>
+
+                <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
+                  Flagged: {checklistStats.flagged}
+                </span>
+
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                  Review: {checklistStats.review}
                 </span>
 
                 <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
@@ -955,7 +999,7 @@ function AuditDetails() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                Checklist generation has not been completed.
+                Use Generate checklist to create screening checks from the saved road segments.
               </p>
             </div>
           ) : (
@@ -992,9 +1036,11 @@ function AuditDetails() {
                         className={`rounded-full px-3 py-1 text-xs font-semibold ${
                           item.status === "pass"
                             ? "bg-emerald-50 text-emerald-700"
-                            : item.status === "fail"
+                            : item.status === "fail" || item.status === "flagged"
                               ? "bg-red-50 text-red-700"
-                              : "bg-amber-50 text-amber-700"
+                              : item.status === "review"
+                                ? "bg-blue-50 text-blue-700"
+                                : "bg-amber-50 text-amber-700"
                         }`}
                       >
                         {item.status || "pending"}
