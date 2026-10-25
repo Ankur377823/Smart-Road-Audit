@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.repositories.segment_repository import SegmentRepository
 from app.schemas.segment import SegmentResponse
+from app.services.segmentation import SegmentationService
 
 
 router = APIRouter(
@@ -34,7 +35,40 @@ def get_segment(
             detail="Segment not found.",
         )
 
-    return segment
+    pieces = SegmentationService.subdivide_geometry(
+        segment.geometry,
+        segment.length_m,
+        max_subsegments=10,
+    )
+    if not pieces:
+        pieces = [(segment.geometry, segment.length_m)]
+
+    # Current audit metrics are segment-level, so subsection scores inherit
+    # the parent's score until subsection-specific measurements are available.
+    subsections = [
+        {
+            "subsection_number": index,
+            "length_m": length,
+            "geometry": geometry,
+            "risk_score": segment.risk_score,
+            "risk_level": segment.risk_level,
+        }
+        for index, (geometry, length) in enumerate(pieces, start=1)
+    ]
+    result = SegmentResponse.model_validate(segment)
+    result.subsection_count = len(subsections)
+    result.subsegments = subsections
+    if segment.risk_score is not None:
+        total_length = sum(item["length_m"] for item in subsections)
+        if total_length > 0:
+            result.risk_score = round(
+                sum(
+                    item["risk_score"] * item["length_m"]
+                    for item in subsections
+                ) / total_length,
+                2,
+            )
+    return result
 
 
 @router.get(

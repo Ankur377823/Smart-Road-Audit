@@ -3,6 +3,16 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class SegmentSubsectionResponse(BaseModel):
+    """A location-specific slice returned when viewing a segment."""
+
+    subsection_number: int
+    length_m: float
+    geometry: str | None
+    risk_score: float | None
+    risk_level: str | None
+
+
 class SegmentResponse(BaseModel):
     """
     Data returned for a road segment.
@@ -30,6 +40,9 @@ class SegmentResponse(BaseModel):
     risk_score: float | None
     risk_level: str | None
     risk_flags: str | None
+
+    subsection_count: int = 1
+    subsegments: list[SegmentSubsectionResponse] = Field(default_factory=list)
 
     created_at: datetime
 
