@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getAudit, getAuditChecklist, getAuditSegments } from "../services/api";
+import {
+  getAudit,
+  getAuditChecklist,
+  getAuditSegments,
+  getSegment,
+} from "../services/api";
 import PotholeReportCard from "../components/pothole/PotholeReportCard";
 
 function AuditDetails() {
@@ -11,9 +16,82 @@ function AuditDetails() {
   const [audit, setAudit] = useState(null);
   const [segments, setSegments] = useState([]);
   const [checklist, setChecklist] = useState([]);
+  const [segmentDetails, setSegmentDetails] = useState({});
+  const [expandedSegmentId, setExpandedSegmentId] = useState(null);
+  const [loadingSegmentId, setLoadingSegmentId] = useState(null);
+  const [selectedBreakdownSegmentId, setSelectedBreakdownSegmentId] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  async function toggleSegmentDetails(segment) {
+    const segmentId = segment.id;
+    if (expandedSegmentId === segmentId) {
+      setExpandedSegmentId(null);
+      return;
+    }
+    setExpandedSegmentId(segmentId);
+    const cached = segmentDetails[segmentId];
+    if (
+      cached &&
+      cached.audit_id === segment.audit_id &&
+      Math.abs(Number(cached.length_m) - Number(segment.length_m)) < 0.01
+    ) return;
+
+    try {
+      setLoadingSegmentId(segmentId);
+      const details = await getSegment(segmentId);
+      setSegmentDetails((current) => ({ ...current, [segmentId]: details }));
+    } catch (err) {
+      setError(err.message || "Unable to load segment subsections.");
+    } finally {
+      setLoadingSegmentId(null);
+    }
+  }
+
+  useEffect(() => {
+    setSegmentDetails({});
+    setExpandedSegmentId(null);
+    setLoadingSegmentId(null);
+    setSelectedBreakdownSegmentId("");
+  }, [auditId]);
+
+  useEffect(() => {
+    const selected =
+      segments.find(
+        (segment) => String(segment.id) === selectedBreakdownSegmentId,
+      ) || segments[0];
+    if (!selected) return undefined;
+
+    const cached = segmentDetails[selected.id];
+    if (
+      cached &&
+      cached.audit_id === selected.audit_id &&
+      Math.abs(Number(cached.length_m) - Number(selected.length_m)) < 0.01
+    ) return undefined;
+
+    let active = true;
+    setLoadingSegmentId(selected.id);
+    getSegment(selected.id)
+      .then((details) => {
+        if (active) {
+          setSegmentDetails((current) => ({
+            ...current,
+            [selected.id]: details,
+          }));
+        }
+      })
+      .catch((err) => {
+        if (active) setError(err.message || "Unable to load subsections.");
+      })
+      .finally(() => {
+        if (active) setLoadingSegmentId(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [segments, selectedBreakdownSegmentId, segmentDetails]);
 
   // ==========================================================
   // LOAD AUDIT DATA
@@ -33,6 +111,9 @@ function AuditDetails() {
 
         setAudit(auditData);
         setSegments(segmentData || []);
+        setSelectedBreakdownSegmentId(
+          segmentData?.length ? String(segmentData[0].id) : "",
+        );
         setChecklist(checklistData || []);
       } catch (err) {
         setError(err.message || "Unable to load audit details.");
@@ -543,16 +624,23 @@ function AuditDetails() {
 
                 <tbody>
                   {segments.map((segment) => (
-                    <tr
-                      key={segment.id}
-                      className="border-b border-slate-100 last:border-0 hover:bg-slate-50"
-                    >
+                    <Fragment key={segment.id}>
+                    <tr className="border-b border-slate-100 hover:bg-slate-50">
                       {/* SEGMENT */}
 
                       <td className="px-6 py-4">
                         <p className="font-semibold text-slate-900">
                           {segment.segment_code}
                         </p>
+                        <button
+                          type="button"
+                          onClick={() => toggleSegmentDetails(segment)}
+                          className="mt-1 text-xs font-medium text-sky-700 hover:text-sky-900"
+                        >
+                          {expandedSegmentId === segment.id
+                            ? "Hide sections"
+                            : "View sections"}
+                        </button>
                       </td>
 
                       {/* ROAD */}
@@ -615,6 +703,42 @@ function AuditDetails() {
                         </div>
                       </td>
                     </tr>
+                    {expandedSegmentId === segment.id && (
+                      <tr className="border-b border-slate-200 bg-slate-50">
+                        <td colSpan={7} className="px-6 py-4">
+                          {loadingSegmentId === segment.id ? (
+                            <p className="text-sm text-slate-500">Loading subsections...</p>
+                          ) : segmentDetails[segment.id] ? (
+                            <div>
+                              <p className="mb-3 text-sm font-semibold text-slate-800">
+                                {segmentDetails[segment.id].subsection_count} subsection(s) for {Number(segmentDetails[segment.id].length_m).toFixed(0)} m, maximum 10
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                {segmentDetails[segment.id].subsegments.map(
+                                  (subsection) => (
+                                    <div
+                                      key={subsection.subsection_number}
+                                      className="rounded-lg border border-slate-200 bg-white p-3"
+                                    >
+                                      <p className="text-sm font-medium text-slate-800">
+                                        Section {subsection.subsection_number} - {Number(subsection.length_m).toFixed(1)} m
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        Risk: {typeof subsection.risk_score === "number" ? subsection.risk_score.toFixed(1) : "Pending"}
+                                      </p>
+                                    </div>
+                                  ),
+                                )}
+                              </div>
+                              <p className="mt-3 text-xs text-amber-700">
+                                Subsection scores currently inherit the parent score because separate measurements are not available yet.
+                              </p>
+                            </div>
+                          ) : null}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -629,9 +753,14 @@ function AuditDetails() {
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-200 p-6">
             <h2 className="text-lg font-semibold text-slate-900">
-              How the risk score is calculated
+              Main segment risk breakdown
             </h2>
             <p className="mt-1 text-sm text-slate-500">
+              Each SEG card is one main road segment in this audit. A segment
+              can be opened to view its shorter subsections; the subsection
+              count depends on length and never exceeds 10.
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
               Raw measurements are converted into risk points using screening
               rules. Risk points have no physical unit; they show relative
               concern on a 0-100 scale.
@@ -678,85 +807,108 @@ function AuditDetails() {
             </div>
           </div>
 
-          <div className="grid gap-4 p-6 lg:grid-cols-2">
-            {segments.map((segment) => {
-              const contributions = getRiskContributions(segment);
-              const calculatedTotal = contributions.reduce(
-                (total, factor) => total + factor.value,
-                0,
-              );
+          {(() => {
+            const selectedSegment =
+              segments.find(
+                (segment) => String(segment.id) === selectedBreakdownSegmentId,
+              ) || segments[0];
+            const details = selectedSegment
+              ? segmentDetails[selectedSegment.id]
+              : null;
+            const contributions = selectedSegment
+              ? getRiskContributions(selectedSegment)
+              : [];
+            const calculatedTotal = contributions.reduce(
+              (total, factor) => total + factor.value,
+              0,
+            );
 
-              return (
-                <article
-                  key={`breakdown-${segment.id}`}
-                  className="rounded-xl border border-slate-200 bg-slate-50 p-5"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">
-                        {segment.segment_code}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {segment.road_name || "Unnamed road"}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Max speed:{" "}
-                        {typeof segment.max_speed === "number"
-                          ? `${Number(segment.max_speed).toFixed(0)} km/h`
-                          : "Not available"}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-slate-900">
-                        {typeof segment.risk_score === "number"
-                          ? segment.risk_score.toFixed(0)
-                          : calculatedTotal}
-                        <span className="text-sm font-medium text-slate-400">
-                          /100
-                        </span>
-                      </p>
-                      <span
-                        className={`text-xs font-semibold capitalize ${getRiskClass(segment.risk_level).split(" ").pop()}`}
-                      >
-                        {segment.risk_level || "Pending"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="mt-5 space-y-3">
-                    {contributions.map((factor) => (
-                      <div key={factor.label}>
-                        <div className="flex items-center justify-between gap-3 text-sm">
-                          <span className="font-medium text-slate-700">
-                            {factor.label}
-                          </span>
-                          <span className="font-semibold text-slate-900">
-                            {factor.value} risk points / {factor.maximum}
-                          </span>
-                        </div>
-                        <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-200">
-                          <div
-                            className="h-full rounded-full bg-amber-500"
-                            style={{
-                              width: `${(factor.value / factor.maximum) * 100}%`,
-                            }}
-                          />
-                        </div>
-                        <p className="mt-1 text-xs capitalize text-slate-500">
-                          {factor.detail}
-                        </p>
-                      </div>
+            return (
+              <div className="p-6">
+                <label className="mb-4 block max-w-xl">
+                  <span className="mb-1 block text-sm font-medium text-slate-700">
+                    Select a road segment to inspect
+                  </span>
+                  <select
+                    value={selectedSegment ? String(selectedSegment.id) : ""}
+                    onChange={(event) =>
+                      setSelectedBreakdownSegmentId(event.target.value)
+                    }
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
+                  >
+                    {segments.map((segment) => (
+                      <option key={segment.id} value={String(segment.id)}>
+                        {segment.segment_code} - {Number(segment.length_m).toFixed(0)} m - {segment.road_name || "Unnamed road"}
+                      </option>
                     ))}
-                  </div>
+                  </select>
+                  <span className="mt-2 block text-xs text-slate-500">
+                    Choose one of the road segments above. Its shorter subsections will appear below.
+                  </span>
+                </label>
 
-                  <p className="mt-5 border-t border-slate-200 pt-3 text-xs text-slate-500">
-                    {contributions.map((factor) => factor.value).join(" + ")} ={" "}
-                    {calculatedTotal} total contribution
-                  </p>
-                </article>
-              );
-            })}
-          </div>
+                {!selectedSegment ? (
+                  <p className="text-sm text-slate-500">No road segments available.</p>
+                ) : loadingSegmentId === selectedSegment.id && !details ? (
+                  <p className="text-sm text-slate-500">Loading subsections...</p>
+                ) : details ? (
+                  <>
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {selectedSegment.segment_code} - {Number(details.length_m).toFixed(0)} m road segment, divided into {details.subsection_count} subsection(s)
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Parent segment average score: {typeof details.risk_score === "number" ? details.risk_score.toFixed(1) : "Pending"}/100
+                      </p>
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {details.subsegments.map((subsection) => (
+                        <article
+                          key={subsection.subsection_number}
+                          className="rounded-xl border border-slate-200 bg-slate-50 p-5"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-slate-900">
+                                {selectedSegment.segment_code} - Section {subsection.subsection_number}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-500">
+                                Length: {Number(subsection.length_m).toFixed(1)} m
+                              </p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-2xl font-bold text-slate-900">
+                                {typeof subsection.risk_score === "number"
+                                  ? subsection.risk_score.toFixed(1)
+                                  : calculatedTotal}
+                                <span className="text-sm font-medium text-slate-400">/100</span>
+                              </p>
+                              <span className={`text-xs font-semibold capitalize ${getRiskClass(subsection.risk_level).split(" ").pop()}`}>
+                                {subsection.risk_level || "Pending"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="mt-4 space-y-2">
+                            {contributions.map((factor) => (
+                              <div key={factor.label} className="flex justify-between gap-3 text-xs text-slate-600">
+                                <span>{factor.label}</span>
+                                <span>{factor.value} / {factor.maximum}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-amber-700">
+                      Subsection scores currently inherit the parent score because separate measurements are not available yet.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500">Choose a segment to load its subsections.</p>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         {/* ==================================================
