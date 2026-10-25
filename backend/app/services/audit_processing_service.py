@@ -8,11 +8,13 @@ from app.core.config import settings
 from app.models.audit import Audit
 from app.models.segment import Segment
 from app.repositories.audit_repository import AuditRepository
+from app.repositories.checklist_repository import ChecklistRepository
 from app.repositories.segment_repository import SegmentRepository
 from app.services.google_road_service import (
     GoogleRoadService,
     RoadServiceResult,
 )
+from app.services.checklist import ChecklistService
 from app.services.metrics import SegmentMetrics
 from app.services.risk_scoring import RiskScoringService
 from app.services.road_segmentation_service import (
@@ -76,6 +78,8 @@ class AuditProcessingService:
 
         self.audit_repository = AuditRepository(db)
         self.segment_repository = SegmentRepository(db)
+        self.checklist_repository = ChecklistRepository(db)
+        self.checklist_service = ChecklistService()
 
         try:
             self.google_road_service = GoogleRoadService()
@@ -255,14 +259,24 @@ class AuditProcessingService:
             # 8. Save segments
             # --------------------------------------------------
 
-            self.segment_repository.delete_by_audit_id(
-                audit.id
-            )
+            self.checklist_repository.delete_by_audit_id(audit.id)
+            self.segment_repository.delete_by_audit_id(audit.id)
 
             if segments:
-                self.segment_repository.create_many(
+                saved_segments = self.segment_repository.create_many(
                     segments
                 )
+                checklist_items = [
+                    self.checklist_service.to_model(
+                        result,
+                        audit_id=audit.id,
+                        segment_id=segment.id,
+                    )
+                    for segment in saved_segments
+                    for result in self.checklist_service.generate_for_segment(segment)
+                ]
+                if checklist_items:
+                    self.checklist_repository.create_many(checklist_items)
 
             # --------------------------------------------------
             # 9. Mark audit as ready
