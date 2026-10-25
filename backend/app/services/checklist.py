@@ -45,35 +45,17 @@ class ChecklistService:
 
         results: list[ChecklistResult] = []
 
-        # Gradient-related check
-        if segment.gradient is not None:
-            results.append(
-                self._gradient_check(segment)
-            )
-
-        # Curve-related check
-        if segment.curve_radius is not None:
-            results.append(
-                self._curve_check(segment)
-            )
-
-        # Operating-speed check
-        if segment.operating_speed is not None:
-            results.append(
-                self._speed_check(segment)
-            )
-
-        # Traffic-related check
-        if segment.traffic_level is not None:
-            results.append(
-                self._traffic_check(segment)
-            )
-
-        # Pedestrian-related check
-        if segment.pedestrian_activity is not None:
-            results.append(
-                self._pedestrian_check(segment)
-            )
+        # Include each check even when its input is unavailable. Missing data
+        # is reported as pending rather than silently omitting the check.
+        results.extend(
+            [
+                self._gradient_check(segment),
+                self._curve_check(segment),
+                self._speed_check(segment),
+                self._traffic_check(segment),
+                self._pedestrian_check(segment),
+            ]
+        )
 
         # Physical field verification
         results.append(
@@ -90,6 +72,18 @@ class ChecklistService:
     def _gradient_check(
         segment: Segment,
     ) -> ChecklistResult:
+        if segment.gradient is None:
+            return ChecklistResult(
+                category="Geometry",
+                code="GEO-GRADIENT",
+                question="Is the longitudinal gradient appropriate for the road segment?",
+                status="pending",
+                reason="Gradient data is unavailable; verify this condition in the field.",
+                severity=None,
+                automated=True,
+                field_verification_required=True,
+            )
+
         gradient = abs(segment.gradient or 0)
 
         if gradient < 3:
@@ -137,7 +131,11 @@ class ChecklistService:
     ) -> ChecklistResult:
         radius = segment.curve_radius
 
-        if radius is None or radius >= 500:
+        if radius is None:
+            status = "pending"
+            severity = None
+            reason = "Curve geometry data is unavailable; verify alignment in the field."
+        elif radius >= 500:
             status = "pass"
             severity = None
             reason = "No significant sharp-curve concern detected."
@@ -169,7 +167,7 @@ class ChecklistService:
             severity=severity,
             automated=True,
             field_verification_required=(
-                radius is not None and radius < 250
+                radius is None or radius < 250
             ),
         )
 
@@ -181,6 +179,18 @@ class ChecklistService:
     def _speed_check(
         segment: Segment,
     ) -> ChecklistResult:
+        if segment.operating_speed is None:
+            return ChecklistResult(
+                category="Speed",
+                code="SPD-OPERATING",
+                question="Is the operating speed appropriate for the road environment and surrounding activity?",
+                status="pending",
+                reason="Operating-speed data is unavailable; verify speed conditions in the field.",
+                severity=None,
+                automated=True,
+                field_verification_required=True,
+            )
+
         speed = segment.operating_speed or 0
 
         if speed <= 30:
@@ -266,7 +276,9 @@ class ChecklistService:
             reason=reason,
             severity=severity,
             automated=True,
-            field_verification_required=traffic == "high",
+            field_verification_required=(
+                traffic is None or traffic == "high"
+            ),
         )
 
     # -------------------------
@@ -320,7 +332,9 @@ class ChecklistService:
             reason=reason,
             severity=severity,
             automated=True,
-            field_verification_required=activity == "high",
+            field_verification_required=(
+                activity is None or activity == "high"
+            ),
         )
 
     # -------------------------
