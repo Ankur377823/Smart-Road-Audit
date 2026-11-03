@@ -127,8 +127,9 @@ function enrichDetection(det, frameW, frameH, camera, speedKmh, roadClass) {
 }
 
 /** Normalises a scanner entry for the PDF report. */
-function sessionEntryToReport(p) {
+function sessionEntryToReport(p, index) {
   return {
+    number: index + 1,
     severity: p.severity,
     riskLevel: p.riskLevel,
     actionPriority: p.actionPriority,
@@ -1161,6 +1162,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 ? `Save ${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'} to audit`
                 : 'Save to audit'}
           </button>
+          {!saving && (sessionPotholes.length === 0 || !selectedAuditId) && (
+            <p className="mt-2 text-center text-xs text-slate-500">
+              {!selectedAuditId
+                ? audits.length ? 'Select an audit above to save.' : 'Create an audit first to save detections.'
+                : 'Start the camera to record potholes.'}
+            </p>
+          )}
         </aside>
       </div>
 
@@ -1214,10 +1222,12 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                       {item.riskLevel && <Badge tone={RISK_TONE[item.riskLevel]}>{item.riskLevel} risk</Badge>}
                     </div>
                     <p className="mt-1 text-xs text-slate-600">
-                      Depth {item.depth_cm != null ? `${Math.round(item.depth_cm * 10)} mm` : 'N/A'}{' '}
-                      <span className="text-slate-400">({item.depthSource === 'measured' ? 'measured' : 'est.'})</span>
-                      {' · '}Width {item.width_mm != null ? `${item.width_mm} mm` : 'N/A'}
-                      {item.area_m2 != null && ` · ${item.area_m2} m²`}
+                      Depth {item.depth_cm != null ? `${Math.round(item.depth_cm * 10)} mm` : 'N/A'}
+                      {item.depth_cm != null && (
+                        <span className="text-slate-400"> ({item.depthSource === 'measured' ? 'measured' : 'est.'})</span>
+                      )}
+                      {' · '}Width {item.width_mm != null ? `${Math.round(item.width_mm)} mm` : 'N/A'}
+                      {item.area_m2 != null && ` · ${Number(item.area_m2).toFixed(3)} m²`}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-600">
                       Priority: <span className="font-medium text-slate-900">{item.actionPriority || '–'}</span>

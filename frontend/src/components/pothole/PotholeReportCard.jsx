@@ -51,18 +51,22 @@ function PotholeMap({ potholes }) {
         })
         const bounds = new window.google.maps.LatLngBounds()
 
-        located.forEach((item, index) => {
+        located.forEach((item) => {
           const position = potholePosition(item)
           bounds.extend(position)
+          // Same number as the card in the list below
+          const number = potholes.length - potholes.indexOf(item)
           const pin = new PinElement({
             ...(SEVERITY_PIN[item.severity] || SEVERITY_PIN.minor),
+            glyph: String(number),
             glyphColor: '#ffffff',
           })
           markers.push(new AdvancedMarkerElement({
             map,
             position,
             content: pin.element,
-            title: `Pothole #${located.length - index}: ${item.severity}, ${item.depth_cm} cm` +
+            title: `Pothole ${number}: ${IRC_CLASS_LABEL[item.severity] || item.severity}` +
+              (item.depth_cm != null ? `, ${Math.round(item.depth_cm * 10)} mm deep` : '') +
               (item.location_source === 'audit_center' ? ' (approximate location)' : ''),
           }))
         })
@@ -119,9 +123,11 @@ function recordToReport(item) {
 function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOpenScanner = () => {} }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
   const [previewImage, setPreviewImage] = useState(null)
   const [category, setCategory] = useState(() => defaultCategoryForRoadClass(roadClass))
-  const [carriagewayWidthM, setCarriagewayWidthM] = useState(DEFAULT_CARRIAGEWAY_WIDTH_M)
+  // Kept as typed so the field can be cleared and edited; parsed below
+  const [widthInput, setWidthInput] = useState(String(DEFAULT_CARRIAGEWAY_WIDTH_M))
   const [reportBusy, setReportBusy] = useState(false)
   const [reportError, setReportError] = useState('')
 
@@ -129,14 +135,27 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
     if (!auditId) return
 
     setLoading(true)
+    setLoadError('')
     getAuditPotholes(auditId)
       .then((res) => setData(res))
-      .catch(() => setData(null))
+      .catch((err) => {
+        setData(null)
+        setLoadError(err.message || 'Could not load pothole records.')
+      })
       .finally(() => setLoading(false))
   }, [auditId])
 
+  useEffect(() => {
+    if (!previewImage) return
+    const onKey = (e) => e.key === 'Escape' && setPreviewImage(null)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [previewImage])
+
+  const carriagewayWidthM = Number(widthInput) >= 2 ? Math.min(40, Number(widthInput)) : DEFAULT_CARRIAGEWAY_WIDTH_M
   const potholes = data?.detections || []
-  const reportPotholes = potholes.map(recordToReport)
+  const reportPotholes = potholes.map((item, index) => ({ ...recordToReport(item), number: potholes.length - index }))
+  const essentialCount = potholes.filter((p) => p.action_priority === 'Essential').length
   const survey = surveyLengthM ? { lengthM: surveyLengthM, widthM: carriagewayWidthM, category } : null
   const section = survey ? computeSectionRating(reportPotholes, survey) : null
 
@@ -183,6 +202,8 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
     >
       {loading ? (
         <p className="px-6 py-10 text-center text-sm text-slate-500">Loading pothole records…</p>
+      ) : loadError ? (
+        <p className="px-6 py-10 text-center text-sm text-red-600">{loadError}</p>
       ) : (
         <div className="p-4 sm:p-6">
           <div className="grid grid-cols-4 gap-2 text-center">
@@ -199,6 +220,11 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
             ))}
           </div>
 
+          {essentialCount > 0 && (
+            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              {essentialCount} pothole{essentialCount === 1 ? ' needs' : 's need'} essential repair (very high risk, IRC:SP:88).
+            </p>
+          )}
           {reportError && <p className="mt-3 text-sm text-red-600">{reportError}</p>}
 
           {potholes.length > 0 && (
@@ -236,8 +262,9 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
                     max="40"
                     step="0.5"
                     inputMode="decimal"
-                    value={carriagewayWidthM}
-                    onChange={(e) => setCarriagewayWidthM(Math.max(2, Number(e.target.value) || DEFAULT_CARRIAGEWAY_WIDTH_M))}
+                    value={widthInput}
+                    onChange={(e) => setWidthInput(e.target.value)}
+                    onBlur={() => setWidthInput(String(carriagewayWidthM))}
                     className="input mt-1 py-2"
                   />
                 </label>
@@ -267,7 +294,7 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
                       type="button"
                       onClick={() => item.snapshot_image && setPreviewImage(item.snapshot_image)}
                       disabled={!item.snapshot_image}
-                      className="relative block h-36 w-full bg-slate-100"
+                      className="relative flex h-36 w-full items-center justify-center bg-slate-100 enabled:cursor-zoom-in"
                       aria-label={item.snapshot_image ? `View photo of pothole ${potholes.length - index}` : undefined}
                     >
                       {item.snapshot_image ? (
@@ -282,7 +309,7 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
                     <div className="p-3 text-xs text-slate-600">
                       <div className="flex items-center justify-between">
                         <span className="text-sm font-medium text-slate-900">Pothole {potholes.length - index}</span>
-                        <span>{Math.round(item.confidence * 100)}% conf.</span>
+                        <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% conf.` : ''}</span>
                       </div>
                       {item.risk_level && (
                         <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -294,7 +321,7 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
                         Depth {item.depth_cm != null ? `${Math.round(item.depth_cm * 10)} mm` : 'N/A'}
                         {item.depth_cm != null && ` (${item.depth_source === 'measured' ? 'measured' : 'est.'})`}
                         {' · '}Width {item.width_mm != null ? `${Math.round(item.width_mm)} mm` : 'N/A'}
-                        {item.area_m2 != null && ` · ${item.area_m2} m²`}
+                        {item.area_m2 != null && ` · ${Number(item.area_m2).toFixed(3)} m²`}
                       </p>
                       <p className="mt-1 truncate font-mono text-slate-500">
                         {formatCoord(item.snapped_latitude ?? item.latitude, item.snapped_longitude ?? item.longitude)}
@@ -302,7 +329,7 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
                         {item.location_source === 'audit_center' && <span className="font-sans text-amber-700"> (approx.)</span>}
                       </p>
                       <p className="mt-1 text-slate-500">
-                        {new Date(item.detected_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                        {item.detected_at && new Date(item.detected_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                         {item.speed_kmh != null && ` · ${Math.round(item.speed_kmh)} km/h`}
                       </p>
                     </div>
@@ -322,10 +349,11 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
           aria-modal="true"
           aria-label="Pothole photo"
         >
-          <div className="relative">
-            <img src={previewImage} alt="Pothole" className="max-h-[80vh] w-auto rounded-lg" />
+          <div className="relative" onClick={(e) => e.stopPropagation()}>
+            <img src={previewImage} alt="Pothole" className="max-h-[80vh] max-w-full rounded-lg" />
             <button
               type="button"
+              autoFocus
               onClick={() => setPreviewImage(null)}
               className="absolute right-2 top-2 rounded-full bg-slate-900/80 p-2 text-white hover:bg-slate-900"
               aria-label="Close photo"
