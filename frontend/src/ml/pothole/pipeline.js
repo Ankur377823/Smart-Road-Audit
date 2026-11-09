@@ -6,14 +6,6 @@ import { decodeSegmentation } from './yoloSeg'
 // surroundings stay below ~24 for 90% of real potholes, while off-road false detections have a median of ~30.
 // Kept loose so dusty or muddy road edges still pass.
 const MAX_SURROUND_CHROMA = 30
-// Colour strength grows with exposure: grey asphalt in strong sun reads more colourful than the same road on
-// a dull day, so the limit scales up with the brightness of the surroundings (above mid-grey).
-const MID_GREY = 128
-
-export function surroundTooColourful({ surround_chroma: chroma, surround_brightness: brightness }) {
-  if (chroma == null) return false
-  return chroma > MAX_SURROUND_CHROMA * Math.max(1, (brightness ?? 0) / MID_GREY)
-}
 
 /**
  * Turns raw model outputs into scanner detections, applying the same non-road filters
@@ -41,7 +33,7 @@ export function buildDetections({ rgba, width, height, output0, dims0, output1, 
     // surroundings; road around a pothole is grey asphalt or dull earth. No brightness check: water-filled,
     // dusty and sunlit potholes are often lighter inside than the road.
     const metrics = estimatePotholeDepth(rgba, width, height, det.polygon, det.box)
-    if (surroundTooColourful(metrics)) {
+    if (metrics.surround_chroma > MAX_SURROUND_CHROMA) {
       filteredNonRoad++
       return
     }

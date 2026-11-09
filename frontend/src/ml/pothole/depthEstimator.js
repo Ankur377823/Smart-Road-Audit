@@ -185,6 +185,5 @@ export function estimatePotholeDepth(rgba, width, height, polygon, box) {
     roughness_index: Math.round(normalizedRoughness * 100) / 100,
     intensity_depression: Math.round(intensityDepression * 1000) / 1000,
     surround_chroma: outerCount ? Math.round((outerChromaSum / outerCount) * 10) / 10 : null,
-    surround_brightness: outerCount ? Math.round(outerMean) : null,
   }
 }

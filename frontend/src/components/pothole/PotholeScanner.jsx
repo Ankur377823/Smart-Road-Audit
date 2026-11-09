@@ -199,7 +199,7 @@ const SEVERITY_COLOR = {
 }
 
 // Default detection confidence; lower values catch more potholes but also more false positives
-const DEFAULT_CONFIDENCE = 0.65
+const DEFAULT_CONFIDENCE = 0.55
 
 function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {} }) {
   const videoRef = useRef(null)
@@ -736,23 +736,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
         const roadClass = auditsRef.current.find((a) => String(a.id) === String(auditId))?.road_class ?? null
         const camera = { heightM: cameraHeightRef.current, pitchDeg: pitchRef.current ?? DEFAULT_PITCH_DEG }
-        const enriched = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
+        const detections = (Array.isArray(response?.detections) ? response.detections : []).map((det) =>
           enrichDetection(det, offscreenW, offscreenH, camera, fix.speedKmh, roadClass)
         )
-        // With a measured tilt the road's position in the frame is known: a detection that can't be placed
-        // on the road within 15 m sits above the horizon (wall, vehicle, building, sky) and is not a pothole.
-        // Without a motion sensor (desktop webcams) the tilt is only assumed, so nothing is dropped here.
-        const tiltMeasured = pitchRef.current != null
-        const detections = tiltMeasured ? enriched.filter((det) => det.distance_m != null) : enriched
-        const offRoad = enriched.length - detections.length
         setCurrentDetections(detections)
         setModelMode(response?.model_mode || '')
         setDetectError(null)
-        setHumanWarning(
-          offRoad
-            ? `${offRoad} detection(s) above the road ignored`
-            : response?.human_detected ? response?.warning_message || 'Non-road object filtered' : null
-        )
+        setHumanWarning(response?.human_detected ? response?.warning_message || 'Non-road object filtered' : null)
 
         // Synthetic detections are never recorded
         if (response?.model_mode === SIMULATION_MODE) {
@@ -1122,7 +1112,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
               step="0.05"
               value={confThreshold}
               onChange={(e) => setConfThreshold(Number(e.target.value))}
-              className="mt-2 w-full accent-slate-900"
+              className="mt-1 h-8 w-full accent-slate-900"
             />
             <p className="mt-1 text-xs text-slate-500">Lower finds more potholes but also more false alarms.</p>
           </div>

@@ -91,7 +91,7 @@ function CreateAudit() {
               step="100"
               value={radius}
               onChange={(event) => setRadius(Number(event.target.value))}
-              className="mt-3 w-full accent-slate-900"
+              className="mt-2 h-8 w-full accent-slate-900"
             />
             <div className="mt-1 flex justify-between text-xs text-slate-400">
               <span>100 m</span>

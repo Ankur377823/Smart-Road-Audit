@@ -8,7 +8,7 @@ export function PageHeader({ title, description, actions, onBack, backLabel = 'B
         <button
           type="button"
           onClick={onBack}
-          className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-900"
+          className="-mt-3 mb-1 inline-flex items-center gap-1.5 py-3 text-sm font-medium text-slate-500 transition hover:text-slate-900"
         >
           <IconArrowLeft className="size-4" />
           {backLabel}

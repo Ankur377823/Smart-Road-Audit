@@ -30,7 +30,7 @@ function Landing() {
     <div className="flex min-h-screen flex-col bg-white">
       <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6">
         <BrandMark to="/" />
-        <Link to={entry("/dashboard")} className="text-sm font-semibold text-slate-700 hover:text-slate-900">
+        <Link to={entry("/dashboard")} className="-my-3 py-3 text-sm font-semibold text-slate-700 hover:text-slate-900">
           {isSignedIn() ? "Open dashboard" : "Sign in"}
         </Link>
       </header>
