@@ -3,8 +3,9 @@
 `best.pt` is the trained YOLO26n-seg segmentation model (single class: `pothole`, trained at 640 px).
 Current model (9 Nov 2026): the final epoch of a 100-epoch run on the merged dataset (original pothole set
 plus Indian road images from RDD2022, CC BY-SA 4.0). On 275 held-out Indian road images it scores box mAP50
-0.52 (the previous model: 0.00). Through the scanner's own pipeline at its default 55% confidence it finds 53 of
-the 202 potholes there at 85% precision; the previous model found none.
+0.52 (the previous model: 0.00). Through the scanner's own pipeline at 55% confidence it finds 53 of the 202
+potholes there at 85% precision; the previous model found none. The scanner's default is 65% (42 found, 86%
+precision) until a retrain with non-pothole background images cuts false alarms on walls and floors.
 
 `archive/best_2026-09-16_original-dataset.pt` is the previous model (50 epochs, original pothole set only);
 copy it back as `best.pt` to restore it.
