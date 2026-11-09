@@ -6,7 +6,7 @@ import { SEVERITY_TONE } from './severity'
 import { Badge, Section } from '../common/ui'
 import { IconClose, IconFileText, IconScan } from '../common/Icons'
 import { DEFAULT_CARRIAGEWAY_WIDTH_M, defaultCategoryForRoadClass, IRC_CLASS_LABEL, ROAD_CATEGORIES } from '../../ml/pothole/irc82'
-import { computeSectionRating, openPotholeReport, openReportWindow } from '../../utils/potholeReport'
+import { computeSectionRating, openPotholeReport, openReportWindow, preloadReportLibrary } from '../../utils/potholeReport'
 import './pothole.css'
 
 const SEVERITY_PIN = {
@@ -144,6 +144,11 @@ function PotholeReportCard({ auditId, auditTitle, roadClass, surveyLengthM, onOp
       })
       .finally(() => setLoading(false))
   }, [auditId])
+
+  // Fetch the PDF library now, so the report still works if the app is redeployed while this page is open
+  useEffect(() => {
+    preloadReportLibrary().catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!previewImage) return

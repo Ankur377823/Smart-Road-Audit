@@ -2,7 +2,7 @@ import { buildDetections } from './pipeline'
 import { makeSelfTestFrame, SELF_TEST_HEIGHT, SELF_TEST_WIDTH, selfTestPassed } from './selfTest'
 import { letterbox, MODEL_SIZE } from './yoloSeg'
 
-const MODEL_CACHE = 'smartroad-pothole-model-v1'
+const MODEL_CACHE = 'smartroad-pothole-model-v2'
 
 // ONNX Runtime build, chosen in init(): the WebGPU build (runs on the phone GPU, with CPU fallback)
 // when the browser exposes WebGPU, otherwise the smaller CPU-only build. Vite emits each build's .wasm
@@ -14,6 +14,10 @@ let backend = 'cpu'
 async function fetchModel(url) {
   let cache = null
   try {
+    // Free the space held by earlier model versions
+    for (const name of await caches.keys()) {
+      if (name.startsWith('smartroad-pothole-model-') && name !== MODEL_CACHE) await caches.delete(name)
+    }
     cache = await caches.open(MODEL_CACHE)
     const cached = await cache.match(url)
     if (cached) return new Uint8Array(await cached.arrayBuffer())

@@ -6,7 +6,7 @@ import { SEVERITY_TONE } from './severity'
 import { CAMERA_HEIGHTS, DEFAULT_PITCH_DEG, measureOnGround, pitchFromOrientation } from '../../ml/pothole/groundGeometry'
 import { classifyPothole, defaultCategoryForRoadClass, DEFAULT_CARRIAGEWAY_WIDTH_M, IRC_CLASS_LABEL } from '../../ml/pothole/irc82'
 import { assessRisk } from '../../ml/pothole/sp88'
-import { openPotholeReport, openReportWindow } from '../../utils/potholeReport'
+import { openPotholeReport, openReportWindow, preloadReportLibrary } from '../../utils/potholeReport'
 import { detectOnDevice, isOnDeviceSupported, loadOnDeviceDetector } from '../../ml/pothole/onDeviceDetector'
 import { Badge, Notice, PageHeader } from '../common/ui'
 import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconStop, IconTrash } from '../common/Icons'
@@ -281,6 +281,11 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const fixAgeMs = gps.timestamp ? now - gps.timestamp : null
   const fixIsStale = !isFixFresh(gps, now)
   const fixIsPoor = gps.accuracy != null && gps.accuracy > POOR_ACCURACY_M
+
+  // Fetch the PDF library now, so the report still works if the app is redeployed during a long scan
+  useEffect(() => {
+    preloadReportLibrary().catch(() => {})
+  }, [])
 
   // Load the on-device model once (cached by the browser after the first visit)
   useEffect(() => {

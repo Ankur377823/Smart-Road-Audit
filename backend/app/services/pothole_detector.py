@@ -40,6 +40,8 @@ MODEL_MODE_SIMULATION = "simulation_demo"
 # Mean colour strength of the ring around a detection above which it is treated as off-road.
 # Mirrors MAX_SURROUND_CHROMA in frontend/src/ml/pothole/pipeline.js.
 MAX_SURROUND_CHROMA = 30
+# Colour strength grows with exposure, so the limit scales up with surroundings brighter than mid-grey (strong sun)
+MID_GREY = 128
 
 _yolo_model = None
 _model_loaded = False
@@ -180,7 +182,8 @@ class PotholeDetector:
                 # or dull earth. No brightness check: water-filled and dusty potholes are often lighter.
                 metrics = estimate_pothole_depth(image, polygon, box)
                 surround_chroma = metrics.get("surround_chroma")
-                if surround_chroma is not None and surround_chroma > MAX_SURROUND_CHROMA:
+                brightness = metrics.get("surround_brightness") or 0
+                if surround_chroma is not None and surround_chroma > MAX_SURROUND_CHROMA * max(1.0, brightness / MID_GREY):
                     filtered_non_road += 1
                     continue
                 # Server frames carry no camera geometry, so width is unknown: classify by depth only.

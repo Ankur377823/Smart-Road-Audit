@@ -149,6 +149,11 @@ if FRONTEND_DIST:
     # are both API routes and app pages. Browser page loads ask for HTML: give them the app.
     API_ONLY_PREFIXES = ('/api', '/docs', '/redoc', '/openapi', '/health', '/assets', '/models')
 
+    def index_response():
+        # Revalidate on every load: each deploy renames the hashed /assets files and removes the old ones,
+        # so a cached index.html would point at files that no longer exist
+        return FileResponse(os.path.join(FRONTEND_DIST, 'index.html'), headers={'Cache-Control': 'no-cache'})
+
     @app.middleware('http')
     async def serve_spa_for_page_loads(request: Request, call_next):
         path = request.url.path
@@ -158,7 +163,7 @@ if FRONTEND_DIST:
             and not path.startswith(API_ONLY_PREFIXES)
             and not os.path.isfile(os.path.join(FRONTEND_DIST, path.lstrip('/')))
         ):
-            return FileResponse(os.path.join(FRONTEND_DIST, 'index.html'))
+            return index_response()
         return await call_next(request)
 
     assets_dir = os.path.join(FRONTEND_DIST, 'assets')
@@ -169,8 +174,7 @@ if FRONTEND_DIST:
     def serve_root(request: Request):
         if request.method == 'HEAD':
             return Response(status_code=200)
-        index_file = os.path.join(FRONTEND_DIST, 'index.html')
-        return FileResponse(index_file)
+        return index_response()
 
     @app.get('/{full_path:path}')
     def serve_spa(full_path: str):
@@ -185,8 +189,7 @@ if FRONTEND_DIST:
         file_path = os.path.join(FRONTEND_DIST, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-        index_file = os.path.join(FRONTEND_DIST, 'index.html')
-        return FileResponse(index_file)
+        return index_response()
 else:
     print('[Frontend] No compiled React UI found; running in API-only mode')
 

@@ -49,12 +49,28 @@ function mapsUrl(p) {
   return p.latitude != null && p.longitude != null ? `https://www.google.com/maps?q=${p.latitude},${p.longitude}` : null
 }
 
+let jsPdfModule = null
+
+/**
+ * Loads the PDF library ahead of time. Each deploy renames its file and removes the old one, so a page
+ * opened before a deploy (e.g. during a long scan) could no longer fetch it when the report is requested.
+ */
+export function preloadReportLibrary() {
+  jsPdfModule ??= import('jspdf').catch((err) => {
+    jsPdfModule = null
+    throw err
+  })
+  return jsPdfModule
+}
+
 /**
  * Builds the PDF. `target` is a window opened synchronously in the click handler (so mobile
  * browsers don't block it); the finished PDF is shown there, or downloaded if no window is available.
  */
 export async function openPotholeReport({ title, subtitle, potholes, survey, target }) {
-  const { jsPDF } = await import('jspdf')
+  const { jsPDF } = await preloadReportLibrary().catch(() => {
+    throw new Error('The app was updated since this page was opened. Save your potholes, then reload the page.')
+  })
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
   const generatedAt = new Date()
 

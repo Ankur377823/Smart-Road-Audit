@@ -74,6 +74,7 @@ def estimate_pothole_depth(
             "roughness_index": round(normalized_roughness, 2),
             "intensity_depression": round(intensity_depression, 3),
             "surround_chroma": round(surround_chroma, 1) if surround_chroma is not None else None,
+            "surround_brightness": round(outer_mean),
         }
     except Exception as e:
         print(f"[DepthEstimator] analysis failed: {e}")
