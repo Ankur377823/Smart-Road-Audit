@@ -81,6 +81,24 @@ export function IconCameraFlip({ className = "size-4", ...props }) {
   );
 }
 
+export function IconFlash({ className = "size-4", ...props }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
+    </svg>
+  );
+}
+
 export function IconStop({ className = "size-4", ...props }) {
   return (
     <svg

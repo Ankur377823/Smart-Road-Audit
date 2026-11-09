@@ -95,7 +95,7 @@ export async function openPotholeReport({ title, subtitle, potholes, survey, tar
   text(title, MARGIN, 20, { size: 10.5, color: [226, 232, 240] })
   if (subtitle) text(subtitle, MARGIN, 25.5, { size: 8, color: [148, 163, 184] })
   text('SmartRoad Audit', A4.w - MARGIN, 13, { size: 9, style: 'bold', color: [255, 255, 255], align: 'right' })
-  text(`Generated ${dateLabel(generatedAt)}`, A4.w - MARGIN, 20, { size: 8, color: [148, 163, 184], align: 'right' })
+  text(`Generated ${dateLabel(generatedAt)}`, A4.w - MARGIN, 20, { size: 9, color: [226, 232, 240], align: 'right' })
   let y = 40
 
   // Highest risk first (SP:88 findings are listed by priority), then larger potholes.
@@ -329,10 +329,17 @@ export async function openPotholeReport({ title, subtitle, potholes, survey, tar
     doc.setDrawColor(...BORDER)
     doc.line(MARGIN, A4.h - 12, A4.w - MARGIN, A4.h - 12)
     text(`SmartRoad Audit · ${title}`, MARGIN, A4.h - 8, { size: 7, color: [148, 163, 184] })
-    text(`Page ${page} of ${pageCount}`, A4.w - MARGIN, A4.h - 8, { size: 7, color: [148, 163, 184], align: 'right' })
+    text(`Generated ${dateLabel(generatedAt)} · Page ${page} of ${pageCount}`, A4.w - MARGIN, A4.h - 8, {
+      size: 7,
+      color: [148, 163, 184],
+      align: 'right',
+    })
   }
 
-  const fileName = `pothole-report-${generatedAt.toISOString().slice(0, 10)}.pdf`
+  // Local date and time, so several reports from one day get distinct names
+  const pad = (n) => String(n).padStart(2, '0')
+  const stamp = `${generatedAt.getFullYear()}-${pad(generatedAt.getMonth() + 1)}-${pad(generatedAt.getDate())}_${pad(generatedAt.getHours())}${pad(generatedAt.getMinutes())}`
+  const fileName = `pothole-report-${stamp}.pdf`
   if (target && !target.closed) {
     target.location.href = doc.output('bloburl', { filename: fileName })
   } else {

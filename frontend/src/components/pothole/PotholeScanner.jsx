@@ -9,7 +9,7 @@ import { assessRisk } from '../../ml/pothole/sp88'
 import { openPotholeReport, openReportWindow, preloadReportLibrary } from '../../utils/potholeReport'
 import { detectOnDevice, isOnDeviceSupported, loadOnDeviceDetector } from '../../ml/pothole/onDeviceDetector'
 import { Badge, Notice, PageHeader } from '../common/ui'
-import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconStop, IconTrash } from '../common/Icons'
+import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconFlash, IconStop, IconTrash } from '../common/Icons'
 import './pothole.css'
 
 // On-device inference is paced by the worker; server round-trips are throttled harder
@@ -217,6 +217,9 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const [cameraActive, setCameraActive] = useState(false)
   const [cameraError, setCameraError] = useState(null)
   const [facingMode, setFacingMode] = useState('environment')
+  // Phone flashlight for night scans; only offered when the camera reports one (most Android phones)
+  const [torchSupported, setTorchSupported] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
 
   // Camera geometry for measuring pothole width/area on the road plane
   const [cameraHeightM, setCameraHeightM] = useState(CAMERA_HEIGHTS[0].value)
@@ -336,6 +339,9 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     tracksRef.current = []
     setCurrentDetections([])
     setCameraActive(false)
+    // Stopping the track also turns the flashlight off
+    setTorchSupported(false)
+    setTorchOn(false)
   }, [])
 
   // Ensure camera shuts down when leaving component
@@ -534,8 +540,34 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
         videoRef.current.srcObject = stream
         videoRef.current.play().catch((e) => console.warn('Play error:', e))
       }
+
+      // Some phones report the flashlight only once the camera is running, so check again shortly after
+      const track = stream.getVideoTracks()[0]
+      const checkTorch = () => {
+        try {
+          if (streamRef.current === stream && track?.getCapabilities?.().torch) setTorchSupported(true)
+        } catch {
+          // getCapabilities is missing on some browsers: no flashlight button
+        }
+      }
+      checkTorch()
+      setTimeout(checkTorch, 1000)
     }
   }, [facingMode, stopCamera, isSecure])
+
+  const toggleTorch = useCallback(async () => {
+    const track = streamRef.current?.getVideoTracks()[0]
+    if (!track) return
+    const next = !torchOn
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next }] })
+      setTorchOn(next)
+    } catch (e) {
+      console.warn('Flashlight not available:', e)
+      setTorchSupported(false)
+      setTorchOn(false)
+    }
+  }, [torchOn])
 
   // Restart the stream when the camera is flipped while running
   const startCameraRef = useRef(startCamera)
@@ -1021,6 +1053,18 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                   >
                     <IconCameraFlip className="size-5" />
                   </button>
+                  {torchSupported && (
+                    <button
+                      type="button"
+                      onClick={toggleTorch}
+                      className={`hud-button ${torchOn ? 'hud-button-on' : ''}`}
+                      aria-pressed={torchOn}
+                      aria-label={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+                      title={torchOn ? 'Turn flashlight off' : 'Turn flashlight on'}
+                    >
+                      <IconFlash className="size-5" />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleStopScan}
