@@ -17,6 +17,7 @@ class RoadSegmentData:
     operating_speed_kmh: float | None = None
     max_speed_kmh: float | None = None
     traffic_level: str | None = None
+    traffic_delay_percent: float | None = None
     pedestrian_activity: str | None = None
 
 
@@ -28,10 +29,9 @@ class SegmentationService:
     Default segment length:
         250 metres
 
-    Note:
-        Geometry-based splitting is not performed here yet.
-        The current implementation divides the reported
-        road length while retaining the original geometry.
+    Route geometry is sliced at the same distance boundaries
+    as the reported road length, so each segment retains its
+    own geometry.
     """
 
     DEFAULT_SEGMENT_LENGTH_M = 250.0
@@ -71,6 +71,7 @@ class SegmentationService:
         operating_speed_kmh: float | None = None,
         max_speed_kmh: float | None = None,
         traffic_level: str | None = None,
+        traffic_delay_percent: float | None = None,
         pedestrian_activity: str | None = None,
     ) -> list[RoadSegmentData]:
         """
@@ -92,6 +93,13 @@ class SegmentationService:
             self.calculate_segment_count(
                 total_length_m
             )
+        )
+
+        geometry_pieces = self._split_geometry(
+            geometry,
+            total_length_m,
+            segment_count,
+            self.segment_length_m,
         )
 
         segments: list[RoadSegmentData] = []
@@ -128,15 +136,51 @@ class SegmentationService:
                         current_length,
                         2,
                     ),
-                    geometry=geometry,
+                    geometry=(
+                        geometry_pieces[index]
+                        if geometry_pieces is not None
+                        else geometry
+                    ),
                     operating_speed_kmh=operating_speed_kmh,
                     max_speed_kmh=max_speed_kmh,
                     traffic_level=traffic_level,
+                    traffic_delay_percent=traffic_delay_percent,
                     pedestrian_activity=pedestrian_activity,
                 )
             )
 
         return segments
+
+    @classmethod
+    def _split_geometry(
+        cls,
+        geometry: str | None,
+        reported_length_m: float,
+        segment_count: int,
+        segment_length_m: float,
+    ) -> list[str] | None:
+        """Split route geometry proportionally into audit segment pieces."""
+        points = cls._decode_polyline(geometry or "")
+        if len(points) < 2 or segment_count < 1:
+            return None
+        cumulative = [0.0]
+        for first, second in zip(points, points[1:]):
+            cumulative.append(cumulative[-1] + cls._distance_m(first, second))
+        geometry_length = cumulative[-1]
+        if geometry_length <= 0:
+            return None
+
+        pieces = []
+        for index in range(segment_count):
+            reported_start = min(index * segment_length_m, reported_length_m)
+            reported_end = min((index + 1) * segment_length_m, reported_length_m)
+            start = geometry_length * reported_start / reported_length_m
+            end = geometry_length * reported_end / reported_length_m
+            sliced = cls._slice_polyline(points, cumulative, start, end)
+            if len(sliced) < 2:
+                return None
+            pieces.append(cls._encode_polyline(sliced))
+        return pieces
 
     # ==========================================================
     # SEGMENT MULTIPLE ROADS
@@ -221,6 +265,9 @@ class SegmentationService:
                     ),
                     traffic_level=road.get(
                         "traffic_level"
+                    ),
+                    traffic_delay_percent=road.get(
+                        "traffic_delay_percent"
                     ),
                     pedestrian_activity=road.get(
                         "pedestrian_activity"
