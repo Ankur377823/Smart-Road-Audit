@@ -5,7 +5,7 @@ function AuditDetail({ auditDetail }) {
     <section className="mt-8 space-y-8">
       <div className="dashboard-panel">
         <div className="flex items-center justify-between gap-4">
-          <div><p className="text-sm text-slate-400">Audit summary</p><h2 className="mt-2 text-2xl font-bold text-white">{auditDetail.road_class}</h2></div>
+          <div><p className="text-sm text-slate-400">Road class</p><h2 className="mt-2 text-2xl font-bold capitalize text-white">{auditDetail.road_class}</h2><p className="mt-1 text-xs text-slate-400">Terrain: {auditDetail.terrain_class === "plain" || auditDetail.terrain_class === "rolling" ? "Plain / rolling" : auditDetail.terrain_class === "mountainous" || auditDetail.terrain_class === "steep" ? "Mountainous / steep" : "Unavailable"}</p></div>
           <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-300">{auditDetail.status}</span>
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-4">
