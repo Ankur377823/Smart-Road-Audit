@@ -149,6 +149,7 @@ async def process_audit(
             "road_count": result.road_count,
             "segment_count": result.segment_count,
             "status": result.status,
+            "terrain_class": result.terrain_class,
         }
 
     except ValueError as exc:
