@@ -16,8 +16,8 @@ class AuditService:
         "arterial",
     }
 
-    MIN_RADIUS_M = 100
-    MAX_RADIUS_M = 10000
+    MIN_RADIUS_M = 1000
+    MAX_RADIUS_M = 5000
 
     def __init__(self, db: Session):
         self.repository = AuditRepository(db)
