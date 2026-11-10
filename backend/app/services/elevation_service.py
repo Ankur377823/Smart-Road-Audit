@@ -1,7 +1,12 @@
 from dataclasses import dataclass
+import logging
+import math
 
 from app.providers.google_maps import GoogleMapsProvider
 from app.services.metrics import MetricsService
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,6 +39,105 @@ class ElevationService:
         )
 
         self.metrics_service = MetricsService()
+
+    async def calculate_gradients_for_roads(
+        self,
+        roads,
+    ) -> dict[str, float | None]:
+        """Calculate longitudinal gradients for encoded road geometries.
+
+        All unique road geometries are batched into one Elevation API request.
+        Each value is the signed endpoint elevation change over the geometry's
+        measured horizontal length.
+        """
+        geometries = {}
+        for road in roads:
+            geometry = getattr(road, "geometry", None)
+            if not geometry or geometry in geometries:
+                continue
+            points = self._decode_polyline(geometry)
+            if len(points) < 2:
+                continue
+            distance_m = sum(
+                self._distance_m(first, second)
+                for first, second in zip(points, points[1:])
+            )
+            if distance_m > 0:
+                geometries[geometry] = (points, distance_m)
+
+        gradients = {getattr(road, "geometry", None): None for road in roads}
+        if not geometries:
+            return gradients
+
+        request_points = []
+        geometry_keys = list(geometries)
+        for geometry in geometry_keys:
+            points, _ = geometries[geometry]
+            request_points.extend((points[0], points[-1]))
+
+        try:
+            response = await self.google_maps.elevation_for_points(request_points)
+        except Exception as exc:
+            response = getattr(exc, "response", None)
+            logger.warning(
+                "Gradient Elevation API request failed (%s, HTTP %s).",
+                type(exc).__name__,
+                getattr(response, "status_code", None) or "unknown",
+            )
+            return gradients
+
+        results = response.get("results", [])
+        for index, geometry in enumerate(geometry_keys):
+            result_index = index * 2
+            if result_index + 1 >= len(results):
+                continue
+            start_elevation = results[result_index].get("elevation")
+            end_elevation = results[result_index + 1].get("elevation")
+            if start_elevation is None or end_elevation is None:
+                continue
+            _, distance_m = geometries[geometry]
+            gradients[geometry] = self.metrics_service.calculate_gradient(
+                float(end_elevation) - float(start_elevation),
+                distance_m,
+            )
+
+        return gradients
+
+    @staticmethod
+    def _decode_polyline(encoded: str) -> list[tuple[float, float]]:
+        points = []
+        latitude = longitude = index = 0
+        try:
+            while index < len(encoded):
+                values = []
+                for _ in range(2):
+                    result = shift = 0
+                    while True:
+                        byte = ord(encoded[index]) - 63
+                        index += 1
+                        result |= (byte & 0x1F) << shift
+                        shift += 5
+                        if byte < 0x20:
+                            break
+                    values.append(~(result >> 1) if result & 1 else result >> 1)
+                latitude += values[0]
+                longitude += values[1]
+                points.append((latitude / 1e5, longitude / 1e5))
+        except (IndexError, ValueError):
+            return []
+        return points
+
+    @staticmethod
+    def _distance_m(first: tuple[float, float], second: tuple[float, float]) -> float:
+        earth_radius_m = 6_371_000.0
+        lat1, lat2 = math.radians(first[0]), math.radians(second[0])
+        delta_lat = lat2 - lat1
+        delta_lng = math.radians(second[1] - first[1])
+        value = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2) ** 2
+        )
+        return 2 * earth_radius_m * math.asin(math.sqrt(value))
 
     async def calculate_segment_elevation(
         self,
