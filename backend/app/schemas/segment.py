@@ -24,6 +24,7 @@ class SegmentResponse(BaseModel):
     segment_code: str
     road_name: str | None
     road_class: str
+    terrain_class: str | None
 
     length_m: float
     geometry: str | None
@@ -31,10 +32,15 @@ class SegmentResponse(BaseModel):
     # Derived safety metrics
     gradient: float | None
     curve_radius: float | None
+    curve_radius_status: str
     operating_speed: float | None
     max_speed: float | None
     traffic_level: str | None
+    traffic_delay_percent: float | None
+    traffic_source: str | None
     pedestrian_activity: str | None
+    pedestrian_activity_source: str | None
+    pedestrian_place_count: int | None
 
     # Risk information
     risk_score: float | None
@@ -62,6 +68,7 @@ class SegmentSummary(BaseModel):
     segment_code: str
     road_name: str | None
     road_class: str
+    terrain_class: str | None
 
     length_m: float
 
