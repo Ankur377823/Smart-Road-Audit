@@ -149,7 +149,7 @@ function Dashboard({
                 />
               </label>
               <label className="block text-sm text-slate-300">
-                Road class
+                Functional road class
                 <select
                   name="road_class"
                   value={form.road_class}
