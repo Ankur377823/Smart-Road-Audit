@@ -11,7 +11,7 @@ function CreateAudit() {
 
   const [selectedLocation, setSelectedLocation] = useState(null);
 
-  const [radius, setRadius] = useState(100);
+  const [radius, setRadius] = useState(1000);
 
   const [roadClass, setRoadClass] = useState("collector");
 
@@ -234,17 +234,17 @@ function CreateAudit() {
                   <input
                     id="radius"
                     type="range"
-                    min="100"
-                    max="1000"
-                    step="100"
+                    min="1000"
+                    max="5000"
+                    step="1000"
                     value={radius}
                     onChange={(event) => setRadius(Number(event.target.value))}
                     className="mt-4 w-full accent-slate-900"
                   />
 
                   <div className="mt-2 flex justify-between text-[11px] text-slate-400">
-                    <span>100 m</span>
                     <span>1 km</span>
+                    <span>5 km</span>
                   </div>
                 </div>
 
@@ -254,16 +254,17 @@ function CreateAudit() {
 
                 <div>
                   <label className="text-xs font-medium text-slate-500">
-                    Road Class
+                    Functional Road Class
                   </label>
 
                   <p className="mt-1 text-[11px] leading-4 text-slate-400">
-                    This is the category used for the screening model. It is not
-                    detected automatically from Google.
+                    Terrain is classified automatically from elevation samples
+                    using up to a 1 km road profile and 1 to 5 km cross-slope
+                    transects. Shorter available profiles are labeled in the
+                    audit result. Choose the road class separately.
                   </p>
 
                   <div className="mt-2 space-y-2">
-                    {/* Local */}
                     <button
                       type="button"
                       onClick={() => setRoadClass("local")}
@@ -279,12 +280,11 @@ function CreateAudit() {
                         </p>
 
                         <p className="mt-0.5 text-[11px] text-slate-500">
-                          Residential roads
+                          Local streets
                         </p>
                       </div>
                     </button>
 
-                    {/* Collector */}
                     <button
                       type="button"
                       onClick={() => setRoadClass("collector")}
@@ -305,7 +305,6 @@ function CreateAudit() {
                       </div>
                     </button>
 
-                    {/* Arterial */}
                     <button
                       type="button"
                       onClick={() => setRoadClass("arterial")}
@@ -319,7 +318,6 @@ function CreateAudit() {
                         <p className="text-sm font-medium text-slate-900">
                           Arterial
                         </p>
-
                         <p className="mt-0.5 text-[11px] text-slate-500">
                           Major traffic roads
                         </p>
