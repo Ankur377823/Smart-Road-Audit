@@ -220,6 +220,9 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   // Phone flashlight for night scans; only offered when the camera reports one (most Android phones)
   const [torchSupported, setTorchSupported] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
+  // Front (selfie) camera: never pointed at the road, and the model mistakes faces for potholes, so no scanning
+  const [frontCamera, setFrontCamera] = useState(false)
+  const frontCameraRef = useRef(false)
 
   // Camera geometry for measuring pothole width/area on the road plane
   const [cameraHeightM, setCameraHeightM] = useState(CAMERA_HEIGHTS[0].value)
@@ -342,6 +345,8 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     // Stopping the track also turns the flashlight off
     setTorchSupported(false)
     setTorchOn(false)
+    frontCameraRef.current = false
+    setFrontCamera(false)
   }, [])
 
   // Ensure camera shuts down when leaving component
@@ -541,8 +546,18 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
         videoRef.current.play().catch((e) => console.warn('Play error:', e))
       }
 
-      // Some phones report the flashlight only once the camera is running, so check again shortly after
       const track = stream.getVideoTracks()[0]
+      // Phones report which way the camera faces; laptop webcams usually don't, so they keep scanning
+      let isFront = false
+      try {
+        isFront = track?.getSettings?.().facingMode === 'user'
+      } catch {
+        isFront = false
+      }
+      frontCameraRef.current = isFront
+      setFrontCamera(isFront)
+
+      // Some phones report the flashlight only once the camera is running, so check again shortly after
       const checkTorch = () => {
         try {
           if (streamRef.current === stream && track?.getCapabilities?.().torch) setTorchSupported(true)
@@ -716,6 +731,12 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     const intervalId = setInterval(async () => {
       if (document.hidden) return
       if (processingRef.current || !videoRef.current || videoRef.current.readyState < 2) return
+      if (frontCameraRef.current) {
+        // Selfie camera: nothing is detected or recorded until the back camera is selected
+        tracksRef.current = []
+        setCurrentDetections((prev) => (prev.length ? [] : prev))
+        return
+      }
 
       const video = videoRef.current
       const w = video.videoWidth || 640
@@ -1027,7 +1048,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                     <span className="text-white/50">·</span>
                     <span className={isSimulation ? 'text-amber-300' : 'text-white/80'}>{modelLabel}</span>
                   </span>
-                  {videoDims.height > videoDims.width && (
+                  {frontCamera && (
+                    <span className="hud-chip text-amber-200">
+                      <IconAlert className="size-3.5" />
+                      Front camera: switch to the back camera to scan the road
+                    </span>
+                  )}
+                  {!frontCamera && videoDims.height > videoDims.width && (
                     <span className="hud-chip text-amber-200">Turn the phone sideways for better detection</span>
                   )}
                   {(detectError || humanWarning) && (
