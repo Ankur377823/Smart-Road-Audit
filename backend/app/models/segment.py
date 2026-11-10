@@ -42,6 +42,10 @@ class Segment(Base):
         nullable=False,
     )
 
+    terrain_class: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+    )
+
     length_m: Mapped[float] = mapped_column(
         Float,
         nullable=False,
@@ -66,6 +70,12 @@ class Segment(Base):
         nullable=True,
     )
 
+    curve_radius_status: Mapped[str] = mapped_column(
+        String(30),
+        nullable=False,
+        default="unavailable",
+    )
+
     operating_speed: Mapped[float | None] = mapped_column(
         Float,
         nullable=True,
@@ -81,8 +91,28 @@ class Segment(Base):
         nullable=True,
     )
 
+    traffic_delay_percent: Mapped[float | None] = mapped_column(
+        Float,
+        nullable=True,
+    )
+
+    traffic_source: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
     pedestrian_activity: Mapped[str | None] = mapped_column(
         String(50),
+        nullable=True,
+    )
+
+    pedestrian_activity_source: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+    )
+
+    pedestrian_place_count: Mapped[int | None] = mapped_column(
+        Integer,
         nullable=True,
     )
 
