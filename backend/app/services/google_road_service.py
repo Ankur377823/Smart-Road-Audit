@@ -17,7 +17,9 @@ class RoadServiceResult:
     operating_speed_kmh: float | None = None
     max_speed_kmh: float | None = None
     traffic_level: str | None = None
+    traffic_delay_percent: float | None = None
     pedestrian_activity: str | None = None
+    route_geometry: str | None = None
 
 
 class GoogleRoadService:
@@ -91,6 +93,7 @@ class GoogleRoadService:
             route.steps,
             road_class,
             traffic_level,
+            route.traffic_delay_percent,
         )
 
         return self._normalize_roads(
@@ -106,6 +109,7 @@ class GoogleRoadService:
         steps: list[RouteStepResult],
         road_class: str,
         traffic_level: str | None = None,
+        traffic_delay_percent: float | None = None,
     ) -> list[RoadServiceResult]:
         """
         Convert normalized Google route steps into
@@ -130,6 +134,7 @@ class GoogleRoadService:
                     road_class=road_class,
                     length_m=step.distance_m,
                     geometry=step.geometry,
+                    route_geometry=step.route_geometry,
                     operating_speed_kmh=(
                         step.distance_m
                         / step.static_duration_s
@@ -138,6 +143,7 @@ class GoogleRoadService:
                         else None
                     ),
                     traffic_level=traffic_level,
+                    traffic_delay_percent=traffic_delay_percent,
                 )
             )
 
@@ -203,9 +209,11 @@ class GoogleRoadService:
                     geometry=self._clean_geometry(
                         road.geometry
                     ),
+                    route_geometry=road.route_geometry,
                     operating_speed_kmh=road.operating_speed_kmh,
                     max_speed_kmh=road.max_speed_kmh,
                     traffic_level=road.traffic_level,
+                    traffic_delay_percent=road.traffic_delay_percent,
                     pedestrian_activity=road.pedestrian_activity,
                 )
             )
