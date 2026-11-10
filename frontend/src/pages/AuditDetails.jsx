@@ -10,6 +10,16 @@ import {
 } from "../services/api";
 import PotholeReportCard from "../components/pothole/PotholeReportCard";
 
+function getTerrainGroup(terrainClass) {
+  if (terrainClass === "plain" || terrainClass === "rolling") {
+    return "Plain / rolling";
+  }
+  if (terrainClass === "mountainous" || terrainClass === "steep") {
+    return "Mountainous / steep";
+  }
+  return "Unavailable";
+}
+
 function AuditDetails() {
   const { auditId } = useParams();
   const navigate = useNavigate();
@@ -264,39 +274,41 @@ function AuditDetails() {
   }
 
   function getRiskContributions(segment) {
-    const gradient = Number(segment.gradient);
-    const curveRadius = Number(segment.curve_radius);
-    const operatingSpeed = Number(segment.operating_speed);
+    const gradient = segment.gradient == null ? NaN : Number(segment.gradient);
+    const curveRadius = segment.curve_radius == null ? NaN : Number(segment.curve_radius);
+    const operatingSpeed = segment.operating_speed == null ? NaN : Number(segment.operating_speed);
     const traffic = segment.traffic_level?.toLowerCase();
     const pedestrian = segment.pedestrian_activity?.toLowerCase();
+    const designSpeeds = {
+      arterial: { plain: 60, rolling: 50, mountainous: 40, steep: 40 },
+      collector: { plain: 40, rolling: 40, mountainous: 30, steep: 30 },
+      local: { plain: 30, rolling: 30, mountainous: 20, steep: 20 },
+    };
+    const minimumRadii = { 20: 15, 30: 30, 40: 60, 50: 90, 60: 130 };
+    const designSpeed = designSpeeds[segment.road_class]?.[segment.terrain_class];
+    const minimumRadius = minimumRadii[designSpeed];
 
     let gradientContribution = 0;
-    if (Number.isFinite(gradient)) {
+    if (Number.isFinite(gradient) && segment.terrain_class) {
       const value = Math.abs(gradient);
-      gradientContribution =
-        value < 3 ? 0 : value < 5 ? 10 : value < 8 ? 18 : 25;
+      gradientContribution = value <= 4 ? 0 : 20;
     }
 
     let curveContribution = 0;
     if (Number.isFinite(curveRadius) && curveRadius > 0) {
       curveContribution =
-        curveRadius >= 500
-          ? 0
-          : curveRadius >= 250
-            ? 8
-            : curveRadius >= 100
-              ? 15
-              : 20;
+        minimumRadius === undefined || curveRadius >= minimumRadius ? 0 : 20;
     }
 
     let speedContribution = 0;
     if (Number.isFinite(operatingSpeed) && operatingSpeed >= 0) {
-      speedContribution =
-        operatingSpeed <= 30
+      speedContribution = designSpeed === undefined
+        ? 0
+        : operatingSpeed <= designSpeed
           ? 0
-          : operatingSpeed <= 50
+          : operatingSpeed <= designSpeed * 1.15
             ? 8
-            : operatingSpeed <= 70
+            : operatingSpeed <= designSpeed * 1.3
               ? 14
               : 20;
     }
@@ -305,7 +317,7 @@ function AuditDetails() {
       {
         label: "Gradient",
         value: gradientContribution,
-        maximum: 25,
+        maximum: 20,
         detail: Number.isFinite(gradient) ? `${gradient}%` : "Not available",
       },
       {
@@ -314,7 +326,9 @@ function AuditDetails() {
         maximum: 20,
         detail: Number.isFinite(curveRadius)
           ? `${curveRadius} m radius`
-          : "Not available",
+          : segment.curve_radius_status === "not_defined"
+            ? "Not defined (no curve detected)"
+            : "Unavailable (insufficient geometry)",
       },
       {
         label: "Operating speed",
@@ -325,16 +339,20 @@ function AuditDetails() {
           : "Not available",
       },
       {
-        label: "Traffic level",
+        label: "Estimated congestion",
         value: traffic === "medium" ? 10 : traffic === "high" ? 20 : 0,
         maximum: 20,
-        detail: segment.traffic_level || "Not available",
+        detail: segment.traffic_level
+          ? `${segment.traffic_level} · ${segment.traffic_delay_percent == null ? "delay % unavailable" : `+${Number(segment.traffic_delay_percent).toFixed(1)}% route delay`} · project threshold`
+          : "Unknown; route traffic data unavailable (not scored)",
       },
       {
         label: "Pedestrian activity",
-        value: pedestrian === "medium" ? 8 : pedestrian === "high" ? 15 : 0,
-        maximum: 15,
-        detail: segment.pedestrian_activity || "Not available",
+        value: pedestrian === "medium" ? 8 : pedestrian === "high" ? 20 : 0,
+        maximum: 20,
+        detail: segment.pedestrian_activity
+          ? String(segment.pedestrian_activity) + " nearby-place proxy (" + String(segment.pedestrian_place_count ?? 0) + " activity places)"
+          : "Unknown; no complete Places data (not scored)",
       },
     ];
   }
@@ -476,7 +494,7 @@ function AuditDetails() {
             AUDIT INFORMATION
         ================================================== */}
 
-        <div className="mb-6 grid gap-4 md:grid-cols-4">
+        <div className="mb-6 grid gap-4 md:grid-cols-5">
           {/* RADIUS */}
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -496,6 +514,28 @@ function AuditDetails() {
 
             <p className="mt-2 text-2xl font-bold capitalize text-slate-900">
               {audit.road_class}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <p className="text-sm text-slate-500">Auto-classified terrain</p>
+            <p className="mt-2 text-2xl font-bold capitalize text-slate-900">
+              {getTerrainGroup(audit.terrain_class)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              IRC terrain class: {audit.terrain_class || "unavailable"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {audit.terrain_profile_length_m != null
+                ? `Road profile: ${Math.round(audit.terrain_profile_length_m)} m${audit.terrain_profile_length_m < 1000 ? " (less than 1 km sample)" : ""}`
+                : "Road profile geometry unavailable"}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {audit.terrain_cross_slope_percent != null && Number.isFinite(Number(audit.terrain_cross_slope_percent))
+                ? `${audit.terrain_cross_slope_percent}% cross slope`
+                : audit.terrain_profile_length_m != null
+                  ? "Elevation samples unavailable"
+                  : "Terrain could not be classified"}
             </p>
           </div>
 
@@ -631,7 +671,7 @@ function AuditDetails() {
                     </th>
 
                     <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      Traffic
+                      Estimated congestion
                     </th>
 
                     <th className="px-6 py-3 text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -672,8 +712,8 @@ function AuditDetails() {
                           {segment.road_name || "Unnamed road"}
                         </p>
 
-                        <p className="mt-1 text-xs capitalize text-slate-400">
-                          {segment.road_class}
+                        <p className="mt-1 text-xs text-slate-400">
+                          {segment.road_class} · {getTerrainGroup(segment.terrain_class)}
                         </p>
                       </td>
 
@@ -696,13 +736,27 @@ function AuditDetails() {
                       {/* TRAFFIC */}
 
                       <td className="px-6 py-4 text-sm capitalize text-slate-700">
-                        {segment.traffic_level || "-"}
+                        <span>{segment.traffic_level || "Unknown"}</span>
+                        {segment.traffic_level && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            {segment.traffic_delay_percent == null
+                              ? "Route delay unavailable"
+                              : `+${Number(segment.traffic_delay_percent).toFixed(1)}% route delay`}
+                            {segment.traffic_source === "google_routes_congestion_proxy" &&
+                              " · Google Routes proxy"}
+                          </p>
+                        )}
                       </td>
 
                       {/* PEDESTRIAN */}
 
                       <td className="px-6 py-4 text-sm capitalize text-slate-700">
-                        {segment.pedestrian_activity || "-"}
+                        <span>{segment.pedestrian_activity || "Unknown"}</span>
+                        {segment.pedestrian_activity_source === "nearby_places_proxy" && (
+                          <p className="mt-1 text-xs text-slate-400">
+                            Places proxy · {segment.pedestrian_place_count ?? 0} nearby activity places
+                          </p>
+                        )}
                       </td>
 
                       {/* RISK */}
@@ -788,13 +842,27 @@ function AuditDetails() {
               concern on a 0-100 scale.
             </p>
             <p className="mt-2 text-sm text-amber-700">
-              Road class is the category selected when this audit was created.
+              Terrain is estimated automatically using the longest suitable
+              road profile available, up to 1 km; shorter profiles are labeled
+              in the terrain card. Cross-slope transects are evaluated from a
+              1 km minimum width up to 5 km. These sampling lengths are
+              implementation choices, not IRC-prescribed intervals. Terrain
+              and road class are stored separately.
               Operating speed is derived from route data when available; it is
               not a legal speed limit.
             </p>
             <p className="mt-2 text-sm text-slate-500">
               Max speed is shown as report data only. It is not included in the
               risk-score calculation.
+            </p>
+            <p className="mt-2 text-sm text-amber-700">
+              Estimated congestion compares Google Routes traffic-aware travel
+              time with static route duration. It is a route-level congestion
+              proxy, not a vehicle count or traffic volume. Low is under 100%
+              extra delay, medium is 100% to under 500%, and high is 500% or
+              more; these are project screening thresholds, not IRC limits.
+              The route classification is carried to its steps and derived
+              segments.
             </p>
           </div>
 
@@ -807,9 +875,11 @@ function AuditDetails() {
                 risk score = factor points added together
               </p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Example: 1.5% gradient gives 0 points, 350 m curve radius gives
-                8, 45 km/h gives 8, medium traffic gives 10, and medium
-                pedestrian activity gives 8. Total: 34/100.
+                Example: a gradient above 4% or a curve radius below its
+                IRC:86 design minimum adds geometry risk. Speed is compared
+                with the IRC:86 design speed for the selected road class and
+                detected terrain. Estimated congestion and pedestrian points
+                remain application screening scores.
               </p>
             </div>
             <div className="rounded-xl bg-slate-50 p-4">
@@ -913,7 +983,12 @@ function AuditDetails() {
                           <div className="mt-4 space-y-2">
                             {contributions.map((factor) => (
                               <div key={factor.label} className="flex justify-between gap-3 text-xs text-slate-600">
-                                <span>{factor.label}</span>
+                                <span>
+                                  {factor.label}
+                                  <span className="ml-1 text-slate-400">
+                                    ({factor.detail})
+                                  </span>
+                                </span>
                                 <span>{factor.value} / {factor.maximum}</span>
                               </div>
                             ))}
@@ -922,7 +997,9 @@ function AuditDetails() {
                       ))}
                     </div>
                     <p className="mt-3 text-xs text-amber-700">
-                      Subsection scores currently inherit the parent score because separate measurements are not available yet.
+                      Factor measurements and scores, including gradient, are
+                      inherited from the selected parent segment. Separate
+                      measurements for each subsection are not available yet.
                     </p>
                   </>
                 ) : (
@@ -942,11 +1019,28 @@ function AuditDetails() {
             <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">
-                  IRC Audit Checklist
+                  Urban Road-Safety Screening Checklist
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Automated screening results and items that need field verification. Missing measurements are marked pending.
+                  Checks are evaluated separately for each segment, so repeated questions refer to different road sections. Missing measurements remain pending.
+                </p>
+                <p className="mt-2 max-w-5xl text-sm leading-6 text-slate-600">
+                  <strong>Basis:</strong> Gradient, design-speed and minimum-radius
+                  reference values are drawn from IRC:86-2018 Clause 9.2,
+                  Table 3.1, and Table 8.2 using its 7% superelevation column.
+                  Automated operating-speed bands, congestion
+                  and pedestrian-proxy classes, risk points, and the field-review
+                  prompt are project screening rules; they are not all prescribed
+                  by IRC and this checklist is not a full compliance certification.{" "}
+                  <a
+                    href="https://law.resource.org/pub/in/bis/irc/irc.gov.in.086.2018.pdf"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-sky-700 underline"
+                  >
+                    IRC:86-2018 source
+                  </a>
                 </p>
               </div>
 
@@ -1004,11 +1098,21 @@ function AuditDetails() {
             </div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {checklist.map((item) => (
-                <div key={item.id} className="p-5">
+              {checklist.map((item) => {
+                const linkedSegment = segments.find(
+                  (segment) => String(segment.id) === String(item.segment_id),
+                );
+                return (
+                  <div key={item.id} className="p-5">
                   <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                     <div className="max-w-4xl">
                       <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold text-sky-700">
+                          {linkedSegment?.segment_code || (item.segment_id
+                            ? "Segment"
+                            : "Audit-wide")}
+                        </span>
+
                         {item.code && (
                           <span className="rounded-md bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600">
                             {item.code}
@@ -1053,8 +1157,9 @@ function AuditDetails() {
                       )}
                     </div>
                   </div>
-                </div>
-              ))}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
