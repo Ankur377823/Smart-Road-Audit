@@ -10,6 +10,12 @@ function AuditHistory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  function terrainGroup(terrainClass) {
+    if (terrainClass === "plain" || terrainClass === "rolling") return "Plain / rolling";
+    if (terrainClass === "mountainous" || terrainClass === "steep") return "Mountainous / steep";
+    return "Pending";
+  }
+
   // ==========================================================
   // LOAD AUDITS
   // ==========================================================
@@ -280,6 +286,9 @@ function AuditHistory() {
                         <span className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold capitalize text-slate-700">
                           {audit.road_class}
                         </span>
+                        <p className="mt-2 text-xs capitalize text-slate-500">
+                          Terrain: {terrainGroup(audit.terrain_class)}
+                        </p>
                       </td>
 
                       {/* RADIUS */}
