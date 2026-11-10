@@ -2,6 +2,11 @@ from dataclasses import dataclass
 
 from app.models.checklist import ChecklistItem
 from app.models.segment import Segment
+from app.services.irc_standards import (
+    URBAN_MAX_GRADIENT_PERCENT,
+    urban_design_speed,
+    urban_minimum_curve_radius,
+)
 
 
 @dataclass
@@ -85,19 +90,22 @@ class ChecklistService:
             )
 
         gradient = abs(segment.gradient or 0)
+        if segment.terrain_class is None:
+            return ChecklistResult(
+                category="Geometry",
+                code="GEO-GRADIENT",
+                question="Is the longitudinal gradient appropriate for the road segment?",
+                status="pending",
+                reason="Terrain class is unavailable; apply the relevant IRC gradient limit after field verification.",
+                severity=None,
+                automated=True,
+                field_verification_required=True,
+            )
 
-        if gradient < 3:
+        if gradient <= URBAN_MAX_GRADIENT_PERCENT:
             status = "pass"
             severity = None
-            reason = "No significant gradient concern detected."
-
-        elif gradient < 5:
-            status = "review"
-            severity = "medium"
-            reason = (
-                "Moderate gradient detected; engineering review "
-                "is recommended."
-            )
+            reason = "Gradient is within the IRC:86 general maximum for urban roads."
 
         else:
             status = "flagged"
@@ -118,7 +126,7 @@ class ChecklistService:
             reason=reason,
             severity=severity,
             automated=True,
-            field_verification_required=gradient >= 5,
+            field_verification_required=gradient > URBAN_MAX_GRADIENT_PERCENT,
         )
 
     # -------------------------
@@ -131,21 +139,41 @@ class ChecklistService:
     ) -> ChecklistResult:
         radius = segment.curve_radius
 
+        if getattr(segment, "curve_radius_status", None) == "not_defined":
+            return ChecklistResult(
+                category="Alignment",
+                code="ALI-CURVE",
+                question="Does the horizontal alignment provide adequate visibility and safety for road users?",
+                status="pass",
+                reason="No horizontal curve was detected in the available segment geometry.",
+                severity=None,
+                automated=True,
+                field_verification_required=False,
+            )
+
+        minimum_radius = urban_minimum_curve_radius(
+            segment.road_class,
+            segment.terrain_class,
+        )
+        if minimum_radius is None:
+            return ChecklistResult(
+                category="Alignment",
+                code="ALI-CURVE",
+                question="Does the horizontal alignment provide adequate visibility and safety for road users?",
+                status="pending",
+                reason="Terrain class is unavailable; the IRC design speed and minimum radius cannot be selected.",
+                severity=None,
+                automated=True,
+                field_verification_required=True,
+            )
         if radius is None:
             status = "pending"
             severity = None
             reason = "Curve geometry data is unavailable; verify alignment in the field."
-        elif radius >= 500:
+        elif radius >= minimum_radius:
             status = "pass"
             severity = None
             reason = "No significant sharp-curve concern detected."
-
-        elif radius >= 250:
-            status = "review"
-            severity = "medium"
-            reason = (
-                "Moderate horizontal curvature detected."
-            )
 
         else:
             status = "flagged"
@@ -167,7 +195,7 @@ class ChecklistService:
             severity=severity,
             automated=True,
             field_verification_required=(
-                radius is None or radius < 250
+                radius is None or radius < minimum_radius
             ),
         )
 
@@ -192,13 +220,28 @@ class ChecklistService:
             )
 
         speed = segment.operating_speed or 0
+        design_speed = urban_design_speed(
+            segment.road_class,
+            segment.terrain_class,
+        )
+        if design_speed is None:
+            return ChecklistResult(
+                category="Speed",
+                code="SPD-OPERATING",
+                question="Is the operating speed appropriate for the road environment and surrounding activity?",
+                status="pending",
+                reason="Terrain class is unavailable; the IRC design speed cannot be selected.",
+                severity=None,
+                automated=True,
+                field_verification_required=True,
+            )
 
-        if speed <= 30:
+        if speed <= design_speed:
             status = "pass"
             severity = None
             reason = "No elevated operating-speed concern detected."
 
-        elif speed <= 50:
+        elif speed <= design_speed * 1.15:
             status = "review"
             severity = "medium"
             reason = "Moderate operating speed detected."
@@ -223,7 +266,7 @@ class ChecklistService:
             reason=reason,
             severity=severity,
             automated=True,
-            field_verification_required=speed > 50,
+            field_verification_required=speed > design_speed * 1.15,
         )
 
     # -------------------------
@@ -243,34 +286,42 @@ class ChecklistService:
         if traffic == "low":
             status = "pass"
             severity = None
-            reason = "Low traffic activity detected."
+            reason = (
+                "Low estimated route congestion under the project's "
+                "delay-percentage screening thresholds; this is not a "
+                "traffic-volume measurement."
+            )
 
         elif traffic == "medium":
             status = "review"
             severity = "medium"
             reason = (
-                "Moderate traffic activity detected."
+                "Medium estimated route congestion under project screening "
+                "thresholds; verify against observed traffic conditions."
             )
 
         elif traffic == "high":
             status = "flagged"
             severity = "high"
             reason = (
-                "High traffic activity detected; roadside "
-                "safety conditions should be verified."
+                "High estimated route congestion under project screening "
+                "thresholds; verify against observed traffic conditions."
             )
 
         else:
             status = "pending"
             severity = None
-            reason = "Traffic information is unavailable."
+            reason = (
+                "Estimated congestion data is unavailable; no traffic "
+                "classification was assigned."
+            )
 
         return ChecklistResult(
             category="Traffic",
             code="TRF-ACTIVITY",
             question=(
-                "Are road features adequate for the observed "
-                "level of traffic activity?"
+                "Does this road segment show elevated estimated "
+                "congestion requiring review?"
             ),
             status=status,
             reason=reason,
@@ -298,22 +349,26 @@ class ChecklistService:
         if activity == "low":
             status = "pass"
             severity = None
-            reason = "Low pedestrian activity detected."
+            reason = (
+                "Few nearby activity-generating places were found; this is "
+                "a land-use proxy, not a pedestrian count."
+            )
 
         elif activity == "medium":
             status = "review"
             severity = "medium"
             reason = (
-                "Moderate pedestrian activity detected."
+                "Nearby activity places indicate possible pedestrian "
+                "exposure; verify pedestrian volumes and facilities in the field."
             )
 
         elif activity == "high":
             status = "flagged"
             severity = "high"
             reason = (
-                "High pedestrian activity detected; pedestrian "
-                "facilities and crossing conditions require "
-                "field verification."
+                "Many nearby activity places indicate potentially high "
+                "pedestrian exposure; verify pedestrian volumes, facilities, "
+                "and crossing conditions in the field."
             )
 
         else:
@@ -325,8 +380,8 @@ class ChecklistService:
             category="Pedestrian",
             code="PED-ACTIVITY",
             question=(
-                "Are pedestrian facilities and crossing conditions "
-                "adequate for the surrounding activity?"
+                "Is pedestrian exposure elevated, and do facilities need "
+                "field review?"
             ),
             status=status,
             reason=reason,
