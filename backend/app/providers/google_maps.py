@@ -25,6 +25,8 @@ class GoogleMapsProvider:
         "https://routes.googleapis.com"
     )
 
+    PLACES_BASE_URL = "https://places.googleapis.com/v1"
+
     def __init__(self):
         if not settings.GOOGLE_MAPS_API_KEY:
             raise ValueError(
@@ -402,10 +404,9 @@ class GoogleMapsProvider:
                 longitude,
             )
 
-        locations = "|".join(
-            f"{latitude},{longitude}"
-            for latitude, longitude in points
-        )
+        # Use Google's encoded-polyline form to keep large batches compact.
+        # Terrain classification can send up to 505 locations in one request.
+        locations = f"enc:{self._encode_location_polyline(points)}"
 
         return await self._get(
             "elevation/json",
@@ -413,6 +414,30 @@ class GoogleMapsProvider:
                 "locations": locations,
             },
         )
+
+    @staticmethod
+    def _encode_location_polyline(points: list[tuple[float, float]]) -> str:
+        """Encode discrete location coordinates using Google's polyline format."""
+        previous_latitude = 0
+        previous_longitude = 0
+        encoded = []
+
+        for latitude, longitude in points:
+            latitude_value = int(round(latitude * 1e5))
+            longitude_value = int(round(longitude * 1e5))
+            for delta in (
+                latitude_value - previous_latitude,
+                longitude_value - previous_longitude,
+            ):
+                value = ~(delta << 1) if delta < 0 else delta << 1
+                while value >= 0x20:
+                    encoded.append(chr((0x20 | (value & 0x1F)) + 63))
+                    value >>= 5
+                encoded.append(chr(value + 63))
+            previous_latitude = latitude_value
+            previous_longitude = longitude_value
+
+        return "".join(encoded)
 
     # ==========================================================
     # PLACES - NEARBY SEARCH
@@ -449,16 +474,36 @@ class GoogleMapsProvider:
                 "Place search radius must be greater than zero."
             )
 
-        return await self._get(
-            "place/nearbysearch/json",
-            {
-                "location": (
-                    f"{latitude},{longitude}"
-                ),
-                "radius": radius_m,
-                "type": place_type,
+        payload = {
+            "includedTypes": [place_type],
+            "maxResultCount": 20,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {
+                        "latitude": latitude,
+                        "longitude": longitude,
+                    },
+                    "radius": float(radius_m),
+                }
             },
-        )
+        }
+        headers = {
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": self.api_key,
+            "X-Goog-FieldMask": (
+                "places.displayName,places.location,places.types"
+            ),
+        }
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                f"{self.PLACES_BASE_URL}/places:searchNearby",
+                json=payload,
+                headers=headers,
+            )
+            response.raise_for_status()
+            return response.json()
 
     # ==========================================================
     # COORDINATE VALIDATION
