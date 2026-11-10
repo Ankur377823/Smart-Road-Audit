@@ -36,9 +36,9 @@ class AuditCreate(BaseModel):
     )
 
     radius_m: int = Field(
-        default=100,
-        ge=100,
-        le=1000,
+        default=1000,
+        ge=1000,
+        le=5000,
         description="Audit radius in metres",
     )
 
@@ -48,7 +48,7 @@ class AuditCreate(BaseModel):
         "arterial",
     ] = Field(
         default="collector",
-        description="Road classification to analyze",
+        description="Functional road class used to select design standards",
     )
 
 
@@ -67,6 +67,9 @@ class AuditResponse(BaseModel):
 
     radius_m: int
     road_class: str
+    terrain_class: str | None
+    terrain_cross_slope_percent: float | None
+    terrain_profile_length_m: float | None
 
     status: str
     compliance_score: float | None
@@ -90,6 +93,10 @@ class AuditSummary(BaseModel):
     location_name: str | None
 
     road_class: str
+
+    terrain_class: str | None
+    terrain_cross_slope_percent: float | None
+    terrain_profile_length_m: float | None
 
     radius_m: int
 
