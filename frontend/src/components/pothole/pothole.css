@@ -120,12 +120,12 @@
 }
 
 .hud-button-on {
-  background: #f59e0b;
+  background: #facc15;
   color: #0f172a;
 }
 
 .hud-button-on:hover {
-  background: #fbbf24;
+  background: #fde047;
 }
 
 .hud-button-stop {
