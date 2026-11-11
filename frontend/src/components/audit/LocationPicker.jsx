@@ -1007,7 +1007,7 @@ function LocationPicker({
             snapping ||
             !googleLoaded
           }
-          className="btn btn-secondary py-3"
+          className="btn btn-secondary shrink-0 whitespace-nowrap py-3"
         >
           <IconCrosshair className="size-4" />
           {locating

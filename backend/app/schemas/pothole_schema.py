@@ -76,7 +76,8 @@ class PotholeRecordResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    audit_id: int
+    audit_id: int | None = None
+    scan_session_id: int | None = None
     client_id: str | None = None
     latitude: float | None
     longitude: float | None
@@ -120,3 +121,55 @@ class PotholeSaveResponse(BaseModel):
     saved: list[PotholeRecordResponse]
     skipped_duplicates: int
     compliance_score: float | None
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    # Columns without time zone (SQLite) come back naive; they are stored in UTC
+    if value is None:
+        return None
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+
+
+class ScanSessionSaveRequest(BaseModel):
+    """One scanner run. Re-sending the same client_id updates the saved scan (no duplicates)."""
+
+    client_id: str = Field(..., min_length=8, max_length=64)
+    audit_id: int | None = None
+    title: str | None = Field(None, max_length=255)
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    distance_m: float | None = Field(None, ge=0)
+    detections: list[PotholeSaveItem] = Field(..., max_length=500)
+
+
+class ScanSessionSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    client_id: str
+    audit_id: int | None
+    audit_name: str | None = None
+    title: str | None
+    started_at: datetime | None
+    ended_at: datetime | None
+    distance_m: float | None
+    created_at: datetime
+    updated_at: datetime
+    total_potholes: int = 0
+    severe_count: int = 0
+    moderate_count: int = 0
+    minor_count: int = 0
+    essential_count: int = 0
+
+    @field_validator("started_at", "ended_at", "created_at", "updated_at")
+    @classmethod
+    def _utc(cls, value: datetime | None) -> datetime | None:
+        return _as_utc(value)
+
+
+class ScanSessionDetail(ScanSessionSummary):
+    detections: list[PotholeRecordResponse] = Field(default_factory=list)
+
+
+class ScanSessionAttachRequest(BaseModel):
+    audit_id: int | None = Field(None, description="Audit to add this scan to; null removes the link")

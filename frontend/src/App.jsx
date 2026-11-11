@@ -8,6 +8,7 @@ import CreateAudit from "./pages/CreateAudit";
 import AuditDetails from "./pages/AuditDetails";
 import AuditHistory from "./pages/AuditHistory";
 import PotholeScanPage from "./pages/PotholeScanPage";
+import History from "./pages/History";
 
 const protect = (element) => <RequireAuth>{element}</RequireAuth>;
 
@@ -24,6 +25,7 @@ function App() {
       <Route path="/audits/create" element={protect(<CreateAudit />)} />
       <Route path="/audits/:auditId" element={protect(<AuditDetails />)} />
       <Route path="/scanner" element={protect(<PotholeScanPage />)} />
+      <Route path="/history" element={protect(<History />)} />
       <Route path="/potholes/scan" element={<Navigate to="/scanner" replace />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />

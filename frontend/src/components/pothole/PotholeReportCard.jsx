@@ -100,7 +100,7 @@ function PotholeMap({ potholes }) {
 const RISK_TONE = { 'Very High': 'red', High: 'orange', Medium: 'amber' }
 
 /** Normalises a saved pothole record for the PDF report and section rating. */
-function recordToReport(item) {
+export function recordToReport(item) {
   return {
     severity: item.severity,
     riskLevel: item.risk_level,

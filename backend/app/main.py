@@ -86,11 +86,38 @@ with engine.begin() as connection:
         "WHERE road_class IN ('plain_rolling', 'mountainous_steep')"
     ))
 
-    pothole_columns = {
-        column['name']
+    pothole_column_info = {
+        column['name']: column
         for column in inspect(engine).get_columns('pothole_detections')
     }
+    if engine.dialect.name == 'sqlite' and any(
+        name in pothole_column_info and not pothole_column_info[name]['nullable']
+        for name in ('audit_id', 'latitude', 'longitude', 'depth_cm')
+    ):
+        # SQLite can't drop NOT NULL: rebuild older local tables from the current model, keeping all rows
+        from app.models.pothole_model import PotholeDetection
+
+        for (index_name,) in connection.execute(text(
+            "SELECT name FROM sqlite_master WHERE type = 'index' "
+            "AND tbl_name = 'pothole_detections' AND sql IS NOT NULL"
+        )).fetchall():
+            connection.execute(text(f'DROP INDEX IF EXISTS "{index_name}"'))
+        connection.execute(text('ALTER TABLE pothole_detections RENAME TO pothole_detections_legacy'))
+        PotholeDetection.__table__.create(connection)
+        shared = [c.name for c in PotholeDetection.__table__.columns if c.name in pothole_column_info]
+        column_list = ', '.join(shared)
+        connection.execute(text(
+            f'INSERT INTO pothole_detections ({column_list}) SELECT {column_list} FROM pothole_detections_legacy'
+        ))
+        connection.execute(text('DROP TABLE pothole_detections_legacy'))
+
+    pothole_columns = {
+        column['name']
+        for column in inspect(connection).get_columns('pothole_detections')
+    }
     pothole_additions = {
+        # Scanner run the pothole belongs to (History page); created by create_all on new databases
+        'scan_session_id': 'INTEGER REFERENCES pothole_scan_sessions(id) ON DELETE CASCADE',
         'client_id': 'VARCHAR(64)',
         'snapped_latitude': 'FLOAT',
         'snapped_longitude': 'FLOAT',
@@ -118,9 +145,33 @@ with engine.begin() as connection:
         connection.execute(text(
             'ALTER TABLE pothole_detections ALTER COLUMN depth_cm DROP NOT NULL'
         ))
+        # Scans kept in History without an audit
+        connection.execute(text(
+            'ALTER TABLE pothole_detections ALTER COLUMN audit_id DROP NOT NULL'
+        ))
+        # Deleting an audit unlinks its potholes instead of deleting them, so saved scans keep them
+        cascading = connection.execute(text(
+            "SELECT conname FROM pg_constraint WHERE conrelid = 'pothole_detections'::regclass "
+            "AND contype = 'f' AND confrelid = 'audits'::regclass AND confdeltype <> 'n'"
+        )).fetchall()
+        for (constraint_name,) in cascading:
+            connection.execute(text(f'ALTER TABLE pothole_detections DROP CONSTRAINT "{constraint_name}"'))
+        if cascading:
+            connection.execute(text(
+                'ALTER TABLE pothole_detections ADD CONSTRAINT pothole_detections_audit_id_fkey '
+                'FOREIGN KEY (audit_id) REFERENCES audits (id) ON DELETE SET NULL'
+            ))
+    # Potholes left with neither an audit nor a saved scan (their audit was deleted) are no longer visible
+    connection.execute(text(
+        'DELETE FROM pothole_detections WHERE audit_id IS NULL AND scan_session_id IS NULL'
+    ))
     connection.execute(text(
         'CREATE UNIQUE INDEX IF NOT EXISTS uq_pothole_audit_client '
         'ON pothole_detections (audit_id, client_id)'
+    ))
+    connection.execute(text(
+        'CREATE INDEX IF NOT EXISTS ix_pothole_detections_scan_session_id '
+        'ON pothole_detections (scan_session_id)'
     ))
 
 

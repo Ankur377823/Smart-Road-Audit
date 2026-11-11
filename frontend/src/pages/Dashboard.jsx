@@ -49,8 +49,8 @@ function Dashboard() {
         title="Dashboard"
         description="Road safety audits, risk analysis and pothole screening at a glance."
         actions={
-          // The top bar shows "New audit" from tablet width up; the page button covers phones
-          <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary md:hidden">
+          // The top bar shows "New audit" from laptop width up; the page button covers phones and tablets
+          <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary lg:hidden">
             <IconPlus className="size-4" />
             New audit
           </button>

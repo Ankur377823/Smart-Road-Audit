@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", match: (path) => path === "/dashboard" },
   { to: "/audits", label: "Audits", match: (path) => path.startsWith("/audits") && path !== "/audits/create" },
   { to: "/scanner", label: "Pothole scanner", match: (path) => path === "/scanner" || path === "/potholes/scan" },
+  { to: "/history", label: "History", match: (path) => path === "/history" },
 ];
 
 export function BrandMark({ to = "/dashboard" }) {
@@ -54,13 +55,13 @@ function Navbar() {
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-4 sm:h-16 sm:px-6">
         <BrandMark />
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Main">
           {NAV_ITEMS.map((item) => (
             <Link
               key={item.to}
               {...linkProps(
                 item,
-                "rounded-lg px-3 py-2 text-sm font-medium transition",
+                "whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition",
                 "bg-slate-100 text-slate-900",
                 "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
               )}
@@ -70,7 +71,7 @@ function Navbar() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="hidden items-center gap-2 lg:flex">
           {!onCreatePage && (
             <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
               <IconPlus className="size-4" />
@@ -91,7 +92,7 @@ function Navbar() {
         <button
           type="button"
           onClick={() => setMenuOpen((open) => !open)}
-          className="-mr-2 rounded-lg p-2 text-slate-700 transition hover:bg-slate-100 md:hidden"
+          className="-mr-2 rounded-lg p-2 text-slate-700 transition hover:bg-slate-100 lg:hidden"
           aria-label={menuOpen ? "Close menu" : "Open menu"}
           aria-expanded={menuOpen}
           aria-controls="mobile-menu"
@@ -101,7 +102,7 @@ function Navbar() {
       </div>
 
       {menuOpen && (
-        <nav id="mobile-menu" className="border-t border-slate-200 bg-white px-4 pb-4 pt-2 shadow-sm md:hidden" aria-label="Main">
+        <nav id="mobile-menu" className="border-t border-slate-200 bg-white px-4 pb-4 pt-2 shadow-sm lg:hidden" aria-label="Main">
           <div className="flex flex-col gap-1">
             {NAV_ITEMS.map((item) => (
               <Link

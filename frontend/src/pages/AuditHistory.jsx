@@ -40,7 +40,7 @@ function AuditHistory() {
         <SkeletonPage />
       ) : (
         <>
-          <PageHeader title="Audits" description="All road safety audits, newest first." actions={<div className="md:hidden">{newAuditButton}</div>} />
+          <PageHeader title="Audits" description="All road safety audits, newest first." actions={<div className="lg:hidden">{newAuditButton}</div>} />
 
           {error ? (
             <Notice tone="error">
@@ -59,8 +59,8 @@ function AuditHistory() {
                 />
               ) : (
                 <>
-                  {/* Phones: stacked list */}
-                  <ul className="divide-y divide-slate-100 md:hidden">
+                  {/* Phones and tablets: stacked list */}
+                  <ul className="divide-y divide-slate-100 lg:hidden">
                     {audits.map((audit) => (
                       <li key={audit.id}>
                         <Link to={`/audits/${audit.id}`} className="flex items-center gap-3 px-4 py-4 active:bg-slate-50">
@@ -81,8 +81,8 @@ function AuditHistory() {
                     ))}
                   </ul>
 
-                  {/* Tablet and up: table */}
-                  <div className="hidden overflow-x-auto md:block">
+                  {/* Laptop and up: table */}
+                  <div className="hidden overflow-x-auto lg:block">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         <tr>

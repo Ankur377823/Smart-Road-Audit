@@ -26,10 +26,18 @@ class PotholeDetection(Base):
         autoincrement=True,
     )
 
-    # Linked audit
-    audit_id: Mapped[int] = mapped_column(
-        ForeignKey("audits.id", ondelete="CASCADE"),
-        nullable=False,
+    # Linked audit (null for a scan that was not added to an audit). Deleting the audit only unlinks the
+    # pothole, so scans keep it in History; potholes in no scan are removed at startup (see main.py).
+    audit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("audits.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Scanner run this pothole was recorded in (see PotholeScanSession)
+    scan_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pothole_scan_sessions.id", ondelete="CASCADE"),
+        nullable=True,
         index=True,
     )
 
@@ -163,8 +171,8 @@ class PotholeDetection(Base):
     )
 
     # Relationship to audit
-    # Deleting an audit deletes its potholes in the database (ON DELETE CASCADE on audit_id).
-    # passive_deletes stops SQLAlchemy from first setting audit_id to NULL, which Postgres rejects.
+    # Deleting an audit is handled by the database (ON DELETE SET NULL on audit_id); passive_deletes keeps
+    # SQLAlchemy from loading and updating every pothole first.
     audit: Mapped["Audit"] = relationship(
         "Audit",
         backref=backref("pothole_detections", passive_deletes=True),

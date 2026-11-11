@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import PotholeCanvasOverlay from './PotholeCanvasOverlay'
-import { detectPotholes, savePotholesToAudit } from '../../services/potholeApi'
+import { detectPotholes, saveScanSession } from '../../services/potholeApi'
 import { distanceMeters, formatCoord } from './geo'
 import { SEVERITY_TONE } from './severity'
 import { CAMERA_HEIGHTS, DEFAULT_PITCH_DEG, measureOnGround, pitchFromOrientation } from '../../ml/pothole/groundGeometry'
@@ -9,7 +10,7 @@ import { assessRisk } from '../../ml/pothole/sp88'
 import { openPotholeReport, openReportWindow, preloadReportLibrary } from '../../utils/potholeReport'
 import { detectOnDevice, isOnDeviceSupported, loadOnDeviceDetector } from '../../ml/pothole/onDeviceDetector'
 import { Badge, Notice, PageHeader } from '../common/ui'
-import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconFlash, IconStop, IconTrash } from '../common/Icons'
+import { IconAlert, IconCamera, IconCameraFlip, IconCrosshair, IconFileText, IconFlash, IconPlus, IconStop, IconTrash } from '../common/Icons'
 import './pothole.css'
 
 // On-device inference is paced by the worker; server round-trips are throttled harder
@@ -241,6 +242,10 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const [editingDepthId, setEditingDepthId] = useState(null)
   const [depthDraft, setDepthDraft] = useState('')
   const [reportBusy, setReportBusy] = useState(false)
+
+  // Scan history: each scanner run is saved as one scan (see /history), with or without an audit
+  const scanRef = useRef({ id: null, startedAt: null })
+  const [historySave, setHistorySave] = useState({ status: 'idle', auditId: null }) // idle | saving | saved | error
 
   // Detection engine: 'loading' while the on-device model downloads, then 'device' or 'server' (fallback)
   const [engine, setEngine] = useState(() => (isOnDeviceSupported() ? 'loading' : 'server'))
@@ -492,6 +497,8 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     }
     setCameraError(null)
     setScanEnded(false)
+    // Scan history: the scan starts when the camera first starts (continuing a scan keeps that time)
+    if (!scanRef.current.startedAt) scanRef.current = { ...scanRef.current, startedAt: Date.now() }
     surveyRef.current.last = null
     stopCamera()
 
@@ -867,8 +874,41 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   }, [cameraActive, engine])
 
   // -------------------------------------------------------------
-  // 5. Save Session Detections to Audit Report
+  // 5. Scan history and saving to an audit
   // -------------------------------------------------------------
+  const ensureScanId = () => {
+    if (!scanRef.current.id) {
+      const random = window.crypto?.randomUUID?.() || `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`
+      scanRef.current = { id: `scan-${random}`, startedAt: scanRef.current.startedAt || Date.now() }
+    }
+    return scanRef.current
+  }
+
+  /** Saves (or updates) this scan in History; with auditId it is also added to that audit. */
+  const saveScanToHistory = async (potholes, auditId = null) => {
+    const scan = ensureScanId()
+    return saveScanSession({
+      clientId: scan.id,
+      auditId,
+      startedAt: scan.startedAt,
+      endedAt: Date.now(),
+      distanceM: surveyRef.current.total ? Math.round(surveyRef.current.total) : null,
+      detections: potholes,
+    })
+  }
+
+  const autoSaveScan = async (potholes, auditId = null) => {
+    if (isSimulation || potholes.length === 0) return
+    setHistorySave((prev) => ({ ...prev, status: 'saving' }))
+    try {
+      const saved = await saveScanToHistory(potholes, auditId)
+      setHistorySave({ status: 'saved', auditId: saved?.audit_id ?? null })
+    } catch (err) {
+      setHistorySave((prev) => ({ ...prev, status: 'error' }))
+      console.warn('Scan history save failed:', err.message)
+    }
+  }
+
   const handleSaveToAudit = async () => {
     if (!selectedAuditId) {
       setNotice({ type: 'error', text: 'Select a target audit to attach these detections to.' })
@@ -887,13 +927,12 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setNotice(null)
 
     try {
-      const result = await savePotholesToAudit(selectedAuditId, sessionPotholes)
-      const savedCount = result?.saved?.length ?? sessionPotholes.length
-      const skipped = result?.skipped_duplicates ?? 0
+      const result = await saveScanToHistory(sessionPotholes, selectedAuditId)
+      const savedCount = result?.total_potholes ?? sessionPotholes.length
+      setHistorySave({ status: 'saved', auditId: result?.audit_id ?? Number(selectedAuditId) })
       setNotice({
         type: 'success',
-        text: `Added ${savedCount} pothole detection${savedCount === 1 ? '' : 's'} to Audit #${selectedAuditId}` +
-          (skipped ? ` (${skipped} already saved).` : '.'),
+        text: `Saved ${savedCount} pothole${savedCount === 1 ? '' : 's'} to Audit #${selectedAuditId}. The scan is also in History.`,
       })
       onSaved(selectedAuditId)
     } catch (err) {
@@ -904,6 +943,9 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   }
 
   const handleClearSession = () => {
+    // The saved scan stays in History; the next recording starts a new scan
+    scanRef.current = { id: null, startedAt: null }
+    setHistorySave({ status: 'idle', auditId: null })
     setSessionPotholes([])
     setCurrentDetections([])
     tracksRef.current = []
@@ -917,6 +959,8 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
   const handleStopScan = () => {
     stopCamera()
     setScanEnded(true)
+    // Every scan with potholes is kept in History, even without an audit
+    autoSaveScan(sessionPotholes, historySave.auditId)
     requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
@@ -936,6 +980,17 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setEditingDepthId(null)
     setNotice(null)
   }
+
+  // Keep the saved scan in History in step with measured depths entered after it was saved
+  const sessionVersionRef = useRef(sessionPotholes)
+  useEffect(() => {
+    const changed = sessionVersionRef.current !== sessionPotholes
+    sessionVersionRef.current = sessionPotholes
+    if (changed && scanEnded && historySave.status === 'saved' && sessionPotholes.length) {
+      autoSaveScan(sessionPotholes, historySave.auditId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionPotholes])
 
   const handleGenerateReport = async () => {
     const target = openReportWindow()
@@ -1238,11 +1293,43 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 ? `Save ${sessionPotholes.length} pothole${sessionPotholes.length === 1 ? '' : 's'} to audit`
                 : 'Save to audit'}
           </button>
-          {!saving && (sessionPotholes.length === 0 || !selectedAuditId) && (
+          {!saving && (sessionPotholes.length === 0 || !selectedAuditId) && historySave.status === 'idle' && (
             <p className="mt-2 text-center text-xs text-slate-500">
-              {!selectedAuditId
-                ? audits.length ? 'Select an audit above to save.' : 'Create an audit first to save detections.'
-                : 'Start the camera to record potholes.'}
+              {sessionPotholes.length === 0
+                ? 'Start the camera to record potholes. Every scan is saved to History when you stop it.'
+                : audits.length ? 'Select an audit above to add this scan to it.' : 'Create an audit to add this scan to it.'}
+            </p>
+          )}
+          {historySave.status !== 'idle' && (
+            <p
+              className={`mt-2 flex flex-wrap items-center justify-center gap-x-2 text-center text-xs ${
+                historySave.status === 'error' ? 'text-red-600' : 'text-slate-500'
+              }`}
+              role="status"
+            >
+              {historySave.status === 'saving' && 'Saving this scan to History…'}
+              {historySave.status === 'saved' && (
+                <>
+                  <span>
+                    Saved to History{historySave.auditId ? ` and Audit #${historySave.auditId}` : ''}.
+                  </span>
+                  <Link to="/history" className="-my-2 py-2 font-semibold text-blue-600 hover:text-blue-700">
+                    View history
+                  </Link>
+                </>
+              )}
+              {historySave.status === 'error' && (
+                <>
+                  <span>Couldn't save this scan to History.</span>
+                  <button
+                    type="button"
+                    onClick={() => autoSaveScan(sessionPotholes, historySave.auditId)}
+                    className="-my-2 py-2 font-semibold text-red-700 underline"
+                  >
+                    Try again
+                  </button>
+                </>
+              )}
             </p>
           )}
         </aside>
@@ -1269,9 +1356,14 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                 <IconFileText className="size-4" />
                 {reportBusy ? 'Creating PDF…' : 'Generate PDF report'}
               </button>
-              <button type="button" onClick={handleClearSession} className="btn btn-secondary px-3 py-2 text-sm">
-                <IconTrash className="size-4" />
-                Clear
+              <button
+                type="button"
+                onClick={handleClearSession}
+                className="btn btn-secondary px-3 py-2 text-sm"
+                title={historySave.status === 'saved' ? 'This scan stays in History' : 'Discard the recorded potholes'}
+              >
+                {historySave.status === 'saved' ? <IconPlus className="size-4" /> : <IconTrash className="size-4" />}
+                {historySave.status === 'saved' ? 'Start new scan' : 'Clear'}
               </button>
             </div>
           )}
