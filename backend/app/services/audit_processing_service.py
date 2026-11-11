@@ -8,16 +8,22 @@ from app.core.config import settings
 from app.models.audit import Audit
 from app.models.segment import Segment
 from app.repositories.audit_repository import AuditRepository
+from app.repositories.checklist_repository import ChecklistRepository
 from app.repositories.segment_repository import SegmentRepository
 from app.services.google_road_service import (
     GoogleRoadService,
     RoadServiceResult,
 )
-from app.services.metrics import SegmentMetrics
+from app.services.checklist import ChecklistService
+from app.services.metrics import MetricsService, SegmentMetrics
+from app.services.land_use_service import LandUseService
 from app.services.risk_scoring import RiskScoringService
+from app.services.terrain_classification import TerrainClassificationService
+from app.services.elevation_service import ElevationService
 from app.services.road_segmentation_service import (
     RoadSegmentationService,
 )
+from app.services.segmentation import SegmentationService
 from app.services.road_snap_service import (
     RoadSnapService,
 )
@@ -33,6 +39,7 @@ class AuditProcessingResult:
     road_count: int
     segment_count: int
     status: str
+    terrain_class: str | None = None
 
 
 class AuditProcessingService:
@@ -68,11 +75,16 @@ class AuditProcessingService:
     # Number of route probes around the audit center.
     ROUTE_PROBES = 8
 
+    # Maximum number of segments saved for one audit.
+    MAX_SEGMENTS_PER_AUDIT = 10
+
     def __init__(self, db: Session):
         self.db = db
 
         self.audit_repository = AuditRepository(db)
         self.segment_repository = SegmentRepository(db)
+        self.checklist_repository = ChecklistRepository(db)
+        self.checklist_service = ChecklistService()
 
         try:
             self.google_road_service = GoogleRoadService()
@@ -87,6 +99,27 @@ class AuditProcessingService:
             if not settings.DEMO_MODE:
                 raise
             self.road_snap_service = None
+
+        try:
+            self.terrain_classification_service = TerrainClassificationService()
+        except Exception:
+            if not settings.DEMO_MODE:
+                raise
+            self.terrain_classification_service = None
+
+        try:
+            self.elevation_service = ElevationService()
+        except Exception:
+            if not settings.DEMO_MODE:
+                raise
+            self.elevation_service = None
+
+        try:
+            self.land_use_service = LandUseService()
+        except Exception:
+            if not settings.DEMO_MODE:
+                raise
+            self.land_use_service = None
 
         self.segmentation_service = (
             RoadSegmentationService()
@@ -179,7 +212,7 @@ class AuditProcessingService:
                 )
 
             # --------------------------------------------------
-            # 5. Get road data around audit area
+            # 4. Get road data around audit area
             # --------------------------------------------------
 
             roads = await self._get_roads(
@@ -194,6 +227,51 @@ class AuditProcessingService:
                     "selected audit area."
                 )
 
+            # Nearby activity places are an exposure proxy, not a pedestrian
+            # count. Fetch once for the audit area, then associate each place
+            # with the nearest segment geometry.
+            nearby_places = []
+            places_data_complete = False
+            if self.land_use_service is not None:
+                try:
+                    land_use = await self.land_use_service.analyze_land_use(
+                        latitude=center_lat,
+                        longitude=center_lng,
+                        radius_m=min(audit.radius_m + 150, 10_000),
+                    )
+                    nearby_places = land_use.places
+                    places_data_complete = land_use.data_complete
+                except Exception:
+                    nearby_places = []
+                    places_data_complete = False
+
+            # Classify from the road geometries already returned by the
+            # audit route probes. Terrain lookup is optional: incomplete
+            # geometry/elevation data leaves terrain unknown, but the audit
+            # continues and dependent checks remain pending.
+            terrain_class = None
+            terrain_cross_slope = None
+            terrain_profile_length = None
+            if self.terrain_classification_service is not None:
+                try:
+                    terrain = await self.terrain_classification_service.classify(
+                        latitude=center_lat,
+                        longitude=center_lng,
+                        roads=roads,
+                    )
+                    terrain_class = terrain.terrain_class
+                    terrain_cross_slope = terrain.cross_slope_percent
+                    terrain_profile_length = terrain.profile_length_m
+                except Exception:
+                    terrain_class = None
+                    terrain_cross_slope = None
+                    terrain_profile_length = None
+
+            audit.terrain_class = terrain_class
+            audit.terrain_cross_slope_percent = terrain_cross_slope
+            audit.terrain_profile_length_m = terrain_profile_length
+            self.db.commit()
+
             # --------------------------------------------------
             # 6. Segment roads
             # --------------------------------------------------
@@ -202,7 +280,20 @@ class AuditProcessingService:
                 self.segmentation_service.segment_roads(
                     roads
                 )
-            )
+            )[: self.MAX_SEGMENTS_PER_AUDIT]
+
+            # Gradient is calculated from longitudinal elevations and road
+            # geometry; it does not depend on terrain classification.
+            gradients_by_geometry = {}
+            if self.elevation_service is not None:
+                try:
+                    gradients_by_geometry = (
+                        await self.elevation_service.calculate_gradients_for_roads(
+                            segmented_roads
+                        )
+                    )
+                except Exception:
+                    gradients_by_geometry = {}
 
             # --------------------------------------------------
             # 7. Convert segments to database models
@@ -211,15 +302,35 @@ class AuditProcessingService:
             segments: list[Segment] = []
 
             for index, road in enumerate(segmented_roads):
+                pedestrian_activity, pedestrian_place_count = (
+                    self.land_use_service.classify_segment_activity(
+                        places=nearby_places,
+                        encoded_geometry=road.geometry,
+                        data_complete=places_data_complete,
+                        buffer_m=150.0,
+                    )
+                    if self.land_use_service is not None
+                    else (None, None)
+                )
+                curve_radius, curve_radius_status = (
+                    MetricsService.analyze_curve_geometry(road.geometry)
+                )
                 metrics = self._build_demo_metrics(
                     road_class=road.road_class,
                     index=index,
+                    gradient=gradients_by_geometry.get(road.geometry),
+                    curve_radius=curve_radius,
+                    curve_radius_status=curve_radius_status,
                     operating_speed_kmh=(
                         road.operating_speed_kmh
                     ),
+                    traffic_level=road.traffic_level,
+                    pedestrian_activity=pedestrian_activity,
                 )
                 risk = self.risk_scoring_service.calculate_risk(
-                    metrics
+                    metrics,
+                    road.road_class,
+                    terrain_class,
                 )
 
                 segment = Segment(
@@ -227,18 +338,32 @@ class AuditProcessingService:
                     segment_code=road.segment_code,
                     road_name=road.road_name,
                     road_class=road.road_class,
+                    terrain_class=terrain_class,
                     length_m=road.length_m,
                     geometry=road.geometry,
                     gradient=metrics.gradient,
                     curve_radius=metrics.curve_radius,
+                    curve_radius_status=metrics.curve_radius_status,
                     operating_speed=metrics.operating_speed,
                     max_speed=(
                         road.max_speed_kmh
                         if road.max_speed_kmh is not None
-                        else self._demo_max_speed(road.road_class)
+                        else None
                     ),
                     traffic_level=metrics.traffic_level,
+                    traffic_delay_percent=road.traffic_delay_percent,
+                    traffic_source=(
+                        "google_routes_congestion_proxy"
+                        if road.traffic_delay_percent is not None
+                        else None
+                    ),
                     pedestrian_activity=metrics.pedestrian_activity,
+                    pedestrian_activity_source=(
+                        "nearby_places_proxy"
+                        if metrics.pedestrian_activity is not None
+                        else None
+                    ),
+                    pedestrian_place_count=pedestrian_place_count,
                     risk_score=risk.risk_score,
                     risk_level=risk.risk_level,
                     risk_flags=", ".join(risk.risk_flags),
@@ -250,14 +375,24 @@ class AuditProcessingService:
             # 8. Save segments
             # --------------------------------------------------
 
-            self.segment_repository.delete_by_audit_id(
-                audit.id
-            )
+            self.checklist_repository.delete_by_audit_id(audit.id)
+            self.segment_repository.delete_by_audit_id(audit.id)
 
             if segments:
-                self.segment_repository.create_many(
+                saved_segments = self.segment_repository.create_many(
                     segments
                 )
+                checklist_items = [
+                    self.checklist_service.to_model(
+                        result,
+                        audit_id=audit.id,
+                        segment_id=segment.id,
+                    )
+                    for segment in saved_segments
+                    for result in self.checklist_service.generate_for_segment(segment)
+                ]
+                if checklist_items:
+                    self.checklist_repository.create_many(checklist_items)
 
             # --------------------------------------------------
             # 9. Mark audit as ready
@@ -273,6 +408,7 @@ class AuditProcessingService:
                 road_count=len(roads),
                 segment_count=len(segments),
                 status="ready",
+                terrain_class=terrain_class,
             )
 
         except Exception:
@@ -292,51 +428,26 @@ class AuditProcessingService:
     def _build_demo_metrics(
         road_class: str,
         index: int,
+        gradient: float | None = None,
+        curve_radius: float | None = None,
+        curve_radius_status: str = "unavailable",
         operating_speed_kmh: float | None = None,
+        traffic_level: str | None = None,
+        pedestrian_activity: str | None = None,
     ) -> SegmentMetrics:
-        """Build metrics from route data with a demo fallback."""
-        demo_profiles = {
-            "local": [
-                (30.0, "low", "low"),
-                (35.0, "low", "medium"),
-                (40.0, "medium", "medium"),
-            ],
-            "collector": [
-                (45.0, "medium", "medium"),
-                (50.0, "medium", "high"),
-                (55.0, "high", "medium"),
-            ],
-            "arterial": [
-                (55.0, "medium", "medium"),
-                (60.0, "high", "medium"),
-                (65.0, "high", "high"),
-            ],
-        }
-        demo_profile = demo_profiles.get(
-            road_class,
-            demo_profiles["collector"],
-        )[index % 3]
-
+        """Build metrics only from values supplied by providers."""
         return SegmentMetrics(
-            gradient=round(1.5 + (index % 3) * 1.25, 2),
-            curve_radius=350.0 - (index % 3) * 60.0,
+            gradient=gradient,
+            curve_radius=curve_radius,
+            curve_radius_status=curve_radius_status,
             operating_speed=(
                 round(operating_speed_kmh, 2)
                 if operating_speed_kmh is not None
-                else demo_profile[0]
+                else None
             ),
-            traffic_level=demo_profile[1],
-            pedestrian_activity=demo_profile[2],
+            traffic_level=traffic_level,
+            pedestrian_activity=pedestrian_activity,
         )
-
-    @staticmethod
-    def _demo_max_speed(road_class: str) -> float:
-        """Return the demo reference maximum speed for reporting only."""
-        return {
-            "local": 40.0,
-            "collector": 60.0,
-            "arterial": 80.0,
-        }.get(road_class, 60.0)
 
     # ==========================================================
     # ROAD DATA
@@ -412,6 +523,11 @@ class AuditProcessingService:
                         operating_speed_kmh=(
                             road.operating_speed_kmh
                         ),
+                        max_speed_kmh=road.max_speed_kmh,
+                        traffic_level=road.traffic_level,
+                        traffic_delay_percent=road.traffic_delay_percent,
+                        pedestrian_activity=road.pedestrian_activity,
+                        route_geometry=road.route_geometry,
                     )
                 )
 
@@ -449,8 +565,11 @@ class AuditProcessingService:
 
         for index, road_name in enumerate(road_names):
             segment_length = 250.0 + (index * 60.0)
-            geometry = (
-                f"demo_polyline_{latitude}_{longitude}_{index}"
+            geometry = self._generate_demo_geometry(
+                latitude,
+                longitude,
+                index,
+                min(max(radius_m * 0.35, segment_length), radius_m),
             )
 
             roads.append(
@@ -462,12 +581,40 @@ class AuditProcessingService:
                         radius_m,
                     ),
                     geometry=geometry,
+                    route_geometry=geometry,
                     operating_speed_kmh=None,
                     max_speed_kmh=None,
                 )
             )
 
         return self._deduplicate_roads(roads)
+
+    @staticmethod
+    def _generate_demo_geometry(
+        latitude: float,
+        longitude: float,
+        index: int,
+        length_m: float,
+    ) -> str:
+        """Create a valid gently curved polyline for fallback demo roads."""
+        radius_m = 700.0 + index * 250.0
+        total_angle = min(length_m / radius_m, 0.8)
+        orientation = math.radians(index * 45.0)
+        earth_radius_m = 6_371_000.0
+        origin_lat = math.radians(latitude)
+        points = []
+        for point_index in range(21):
+            angle = -total_angle / 2 + total_angle * point_index / 20
+            local_x = radius_m * math.sin(angle)
+            local_y = radius_m * (1.0 - math.cos(angle))
+            x = local_x * math.cos(orientation) - local_y * math.sin(orientation)
+            y = local_x * math.sin(orientation) + local_y * math.cos(orientation)
+            point_lat = latitude + math.degrees(y / earth_radius_m)
+            point_lng = longitude + math.degrees(
+                x / (earth_radius_m * math.cos(origin_lat))
+            )
+            points.append((point_lat, point_lng))
+        return SegmentationService._encode_polyline(points)
 
     # ==========================================================
     # PROBE GENERATION
@@ -567,6 +714,7 @@ class AuditProcessingService:
                 road.road_name,
                 road.geometry,
                 road.length_m,
+                road.route_geometry,
             )
 
             if key in seen:

@@ -9,7 +9,7 @@ import { IconCheck } from "../components/common/Icons";
 import { formatRadius } from "../utils/format";
 
 const ROAD_CLASSES = [
-  { value: "local", label: "Local", description: "Residential roads" },
+  { value: "local", label: "Local", description: "Local streets" },
   { value: "collector", label: "Collector", description: "Connecting roads" },
   { value: "arterial", label: "Arterial", description: "Major traffic roads" },
 ];
@@ -18,7 +18,7 @@ function CreateAudit() {
   const navigate = useNavigate();
 
   const [selectedLocation, setSelectedLocation] = useState(null);
-  const [radius, setRadius] = useState(100);
+  const [radius, setRadius] = useState(1000);
   const [roadClass, setRoadClass] = useState("collector");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -86,22 +86,24 @@ function CreateAudit() {
             <input
               id="radius"
               type="range"
-              min="100"
-              max="10000"
-              step="100"
+              min="1000"
+              max="5000"
+              step="1000"
               value={radius}
               onChange={(event) => setRadius(Number(event.target.value))}
               className="mt-2 h-8 w-full accent-slate-900"
             />
             <div className="mt-1 flex justify-between text-xs text-slate-400">
-              <span>100 m</span>
-              <span>10 km</span>
+              <span>1 km</span>
+              <span>5 km</span>
             </div>
           </div>
 
           <fieldset className="mt-6">
-            <legend className="field-label">Road class</legend>
-            <p className="mt-1 text-xs text-slate-500">Used by the screening model; not detected automatically.</p>
+            <legend className="field-label">Functional road class</legend>
+            <p className="mt-1 text-xs text-slate-500">
+              Terrain is classified automatically from elevation along the road; choose the road class here.
+            </p>
             <div className="mt-3 space-y-2">
               {ROAD_CLASSES.map((option) => {
                 const active = roadClass === option.value;

@@ -26,8 +26,9 @@ class LandUseResult:
     """
 
     places: list[PlaceResult]
-    pedestrian_activity: str
+    pedestrian_activity: str | None
     dominant_land_use: str | None
+    data_complete: bool
 
 
 class LandUseService:
@@ -47,7 +48,7 @@ class LandUseService:
 
     PLACE_CATEGORIES = {
         "school": "education",
-        "college": "education",
+        "educational_institution": "education",
         "university": "education",
         "hospital": "healthcare",
         "market": "commercial",
@@ -56,8 +57,6 @@ class LandUseService:
         "bus_station": "transport",
         "transit_station": "transport",
         "train_station": "transport",
-        "residential": "residential",
-        "place_of_worship": "community",
     }
 
     HIGH_ACTIVITY_CATEGORIES = {
@@ -122,13 +121,21 @@ class LandUseService:
         )
 
         places: list[PlaceResult] = []
+        data_complete = all(
+            not isinstance(response, Exception)
+            and isinstance(response, dict)
+            and response.get("status") in {None, "OK", "ZERO_RESULTS"}
+            for response in responses
+        )
 
         for place_type, response in zip(
             place_types,
             responses,
         ):
-            # One failed category search should not
-            # invalidate the complete land-use analysis.
+            # Keep any successful place records for display/analysis, but do
+            # not classify pedestrian activity if even one requested category
+            # failed: the resulting count would otherwise look complete when
+            # it is only a partial sample.
             if isinstance(
                 response,
                 Exception,
@@ -151,9 +158,9 @@ class LandUseService:
         )
 
         pedestrian_activity = (
-            self._classify_pedestrian_activity(
-                places
-            )
+            self._classify_pedestrian_activity(places)
+            if data_complete
+            else None
         )
 
         dominant_land_use = (
@@ -166,7 +173,89 @@ class LandUseService:
             places=places,
             pedestrian_activity=pedestrian_activity,
             dominant_land_use=dominant_land_use,
+            data_complete=data_complete,
         )
+
+    @classmethod
+    def classify_segment_activity(
+        cls,
+        places: list[PlaceResult],
+        encoded_geometry: str | None,
+        data_complete: bool,
+        buffer_m: float = 150.0,
+    ) -> tuple[str | None, int | None]:
+        """Classify the activity-place proxy near one segment's polyline."""
+        if not data_complete or not encoded_geometry or buffer_m <= 0:
+            return None, None
+
+        points = cls._decode_polyline(encoded_geometry)
+        if len(points) < 2:
+            return None, None
+
+        nearby_places = [
+            place
+            for place in places
+            if place.category in cls.HIGH_ACTIVITY_CATEGORIES
+            and cls._distance_to_polyline_m(
+                place.latitude,
+                place.longitude,
+                points,
+            ) <= buffer_m
+        ]
+        return (
+            cls._classify_pedestrian_activity(nearby_places),
+            len(nearby_places),
+        )
+
+    @staticmethod
+    def _decode_polyline(encoded: str) -> list[tuple[float, float]]:
+        points = []
+        latitude = longitude = index = 0
+        try:
+            while index < len(encoded):
+                deltas = []
+                for _ in range(2):
+                    result = shift = 0
+                    while True:
+                        byte = ord(encoded[index]) - 63
+                        index += 1
+                        result |= (byte & 0x1F) << shift
+                        shift += 5
+                        if byte < 0x20:
+                            break
+                    deltas.append(~(result >> 1) if result & 1 else result >> 1)
+                latitude += deltas[0]
+                longitude += deltas[1]
+                points.append((latitude / 1e5, longitude / 1e5))
+        except (IndexError, ValueError):
+            return []
+        return points
+
+    @classmethod
+    def _distance_to_polyline_m(
+        cls,
+        latitude: float,
+        longitude: float,
+        points: list[tuple[float, float]],
+    ) -> float:
+        """Return the shortest local-planar distance to a route polyline."""
+        earth_radius_m = 6_371_000.0
+        lat0 = math.radians(latitude)
+        closest = float("inf")
+        for first, second in zip(points, points[1:]):
+            ax = math.radians(first[1] - longitude) * earth_radius_m * math.cos(lat0)
+            ay = math.radians(first[0] - latitude) * earth_radius_m
+            bx = math.radians(second[1] - longitude) * earth_radius_m * math.cos(lat0)
+            by = math.radians(second[0] - latitude) * earth_radius_m
+            dx, dy = bx - ax, by - ay
+            length_squared = dx * dx + dy * dy
+            if length_squared == 0:
+                distance = math.hypot(ax, ay)
+            else:
+                ratio = max(0.0, min(1.0, -(ax * dx + ay * dy) / length_squared))
+                distance = math.hypot(ax + ratio * dx, ay + ratio * dy)
+            closest = min(closest, distance)
+        return closest
 
     # --------------------------------------------------
     # Google Places search
@@ -213,27 +302,17 @@ class LandUseService:
             "other",
         )
 
-        for place in response.get(
-            "results",
-            [],
-        ):
-            geometry = (
-                place.get("geometry")
-                or {}
-            )
+        # Places API (New) returns `places` with `location.latitude` and
+        # `location.longitude`. Accept the former legacy shape too so existing
+        # provider adapters can still be used during local development.
+        raw_places = response.get("places", response.get("results", []))
+        for place in raw_places:
+            location = place.get("location")
+            if location is None:
+                location = (place.get("geometry") or {}).get("location") or {}
 
-            location = (
-                geometry.get("location")
-                or {}
-            )
-
-            latitude = location.get(
-                "lat"
-            )
-
-            longitude = location.get(
-                "lng"
-            )
+            latitude = location.get("latitude", location.get("lat"))
+            longitude = location.get("longitude", location.get("lng"))
 
             if (
                 latitude is None
@@ -250,9 +329,8 @@ class LandUseService:
             ):
                 continue
 
-            name = place.get(
-                "name"
-            )
+            display_name = place.get("displayName") or {}
+            name = display_name.get("text") or place.get("name")
 
             if not name:
                 name = "Unknown"

@@ -27,6 +27,8 @@ function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  // On the new-audit page itself the "New audit" button would only reload the same form
+  const onCreatePage = location.pathname === "/audits/create";
 
   const handleSignOut = () => {
     signOut();
@@ -69,10 +71,12 @@ function Navbar() {
         </nav>
 
         <div className="hidden items-center gap-2 md:flex">
-          <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
-            <IconPlus className="size-4" />
-            New audit
-          </button>
+          {!onCreatePage && (
+            <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
+              <IconPlus className="size-4" />
+              New audit
+            </button>
+          )}
           <button
             type="button"
             onClick={handleSignOut}
@@ -108,11 +112,13 @@ function Navbar() {
               </Link>
             ))}
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2 border-t border-slate-200 pt-3">
-            <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
-              <IconPlus className="size-4" />
-              New audit
-            </button>
+          <div className={`mt-3 grid gap-2 border-t border-slate-200 pt-3 ${onCreatePage ? "grid-cols-1" : "grid-cols-2"}`}>
+            {!onCreatePage && (
+              <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
+                <IconPlus className="size-4" />
+                New audit
+              </button>
+            )}
             <button type="button" onClick={handleSignOut} className="btn btn-secondary">
               <IconLogout className="size-4" />
               Sign out

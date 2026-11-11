@@ -326,6 +326,13 @@ export async function getAuditChecklist(
   );
 }
 
+/** Generate checklist items from an audit's saved road segments. */
+export async function generateAuditChecklist(auditId) {
+  return request(`/audits/${auditId}/checklist/generate`, {
+    method: "POST",
+  });
+}
+
 /**
  * Get checklist items for a segment.
  *

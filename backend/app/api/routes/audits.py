@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
+from app.repositories.checklist_repository import ChecklistRepository
+from app.repositories.segment_repository import SegmentRepository
 from app.schemas.audit import (
     AuditCreate,
     AuditResponse,
@@ -11,6 +13,7 @@ from app.services.audit_processing_service import (
     AuditProcessingService,
 )
 from app.services.audit_service import AuditService
+from app.services.checklist import ChecklistService
 
 
 router = APIRouter(
@@ -146,6 +149,7 @@ async def process_audit(
             "road_count": result.road_count,
             "segment_count": result.segment_count,
             "status": result.status,
+            "terrain_class": result.terrain_class,
         }
 
     except ValueError as exc:
@@ -159,6 +163,49 @@ async def process_audit(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Audit processing failed.",
         )
+
+
+@router.post("/{audit_id}/checklist/generate")
+def generate_audit_checklist(
+    audit_id: int,
+    db: Session = Depends(get_db),
+):
+    """Generate or regenerate checklist items from saved segment data."""
+    audit = AuditService(db).get_audit(audit_id)
+    if audit is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Audit not found.",
+        )
+
+    segments = SegmentRepository(db).get_by_audit_id(audit_id)
+    if not segments:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Process the audit before generating its checklist.",
+        )
+
+    service = ChecklistService()
+    items = [
+        service.to_model(
+            result,
+            audit_id=audit_id,
+            segment_id=segment.id,
+        )
+        for segment in segments
+        for result in service.generate_for_segment(segment)
+    ]
+
+    repository = ChecklistRepository(db)
+    repository.delete_by_audit_id(audit_id)
+    if items:
+        repository.create_many(items)
+
+    return {
+        "audit_id": audit_id,
+        "checklist_count": len(items),
+        "message": "Checklist generated from saved road segment data.",
+    }
 
 
 # ==========================================================

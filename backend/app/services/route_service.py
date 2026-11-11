@@ -18,6 +18,7 @@ class RouteStepResult:
     start_longitude: float | None
     end_latitude: float | None
     end_longitude: float | None
+    route_geometry: str | None = None
 
 
 @dataclass
@@ -284,6 +285,10 @@ class RouteService:
                             end_location.get(
                                 "longitude"
                             )
+                        ),
+                        route_geometry=(
+                            route.get("polyline", {})
+                            .get("encodedPolyline")
                         ),
                     )
                 )

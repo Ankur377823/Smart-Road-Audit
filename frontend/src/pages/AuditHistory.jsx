@@ -7,6 +7,12 @@ import { EmptyState, Notice, PageHeader, Section, SkeletonPage, StatusBadge } fr
 import { IconChevronRight, IconPlus } from "../components/common/Icons";
 import { formatDate, formatRadius, formatScore } from "../utils/format";
 
+function terrainLabel(terrainClass) {
+  if (terrainClass === "plain" || terrainClass === "rolling") return "Plain / rolling";
+  if (terrainClass === "mountainous" || terrainClass === "steep") return "Mountainous / steep";
+  return "Terrain pending";
+}
+
 function AuditHistory() {
   const navigate = useNavigate();
 
@@ -34,7 +40,7 @@ function AuditHistory() {
         <SkeletonPage />
       ) : (
         <>
-          <PageHeader title="Audits" description="All road safety audits, newest first." actions={newAuditButton} />
+          <PageHeader title="Audits" description="All road safety audits, newest first." actions={<div className="md:hidden">{newAuditButton}</div>} />
 
           {error ? (
             <Notice tone="error">
@@ -61,7 +67,7 @@ function AuditHistory() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium text-slate-900">{audit.location_name || "Unnamed audit"}</p>
                             <p className="mt-1 text-xs text-slate-500">
-                              #{audit.id} · <span className="capitalize">{audit.road_class}</span> ·{" "}
+                              #{audit.id} · <span className="capitalize">{audit.road_class}</span> · {terrainLabel(audit.terrain_class)} ·{" "}
                               {formatRadius(audit.radius_m)} · {formatDate(audit.created_at)}
                             </p>
                             <div className="mt-2 flex items-center gap-2">
@@ -81,7 +87,7 @@ function AuditHistory() {
                       <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         <tr>
                           <th className="px-6 py-3">Location</th>
-                          <th className="px-6 py-3">Road class</th>
+                          <th className="px-6 py-3">Road class / terrain</th>
                           <th className="px-6 py-3">Radius</th>
                           <th className="px-6 py-3">Status</th>
                           <th className="px-6 py-3">Compliance</th>
@@ -100,7 +106,10 @@ function AuditHistory() {
                               <p className="truncate font-medium text-slate-900">{audit.location_name || "Unnamed audit"}</p>
                               <p className="text-xs text-slate-500">#{audit.id}</p>
                             </td>
-                            <td className="px-6 py-4 capitalize text-slate-700">{audit.road_class}</td>
+                            <td className="px-6 py-4 text-slate-700">
+                              <p className="capitalize">{audit.road_class}</p>
+                              <p className="text-xs text-slate-500">{terrainLabel(audit.terrain_class)}</p>
+                            </td>
                             <td className="px-6 py-4 text-slate-700">{formatRadius(audit.radius_m)}</td>
                             <td className="px-6 py-4"><StatusBadge status={audit.status} /></td>
                             <td className="px-6 py-4 font-medium text-slate-900">{formatScore(audit.compliance_score)}</td>

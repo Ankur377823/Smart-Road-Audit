@@ -59,6 +59,18 @@ class Audit(Base):
         nullable=False,
     )
 
+    terrain_class: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+    )
+
+    terrain_cross_slope_percent: Mapped[float | None] = mapped_column(
+        Float, nullable=True,
+    )
+
+    terrain_profile_length_m: Mapped[float | None] = mapped_column(
+        Float, nullable=True,
+    )
+
     # -------------------------
     # Audit result
     # -------------------------

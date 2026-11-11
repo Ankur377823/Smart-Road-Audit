@@ -1,6 +1,11 @@
 from dataclasses import dataclass
 
 from app.services.metrics import SegmentMetrics
+from app.services.irc_standards import (
+    URBAN_MAX_GRADIENT_PERCENT,
+    urban_design_speed,
+    urban_minimum_curve_radius,
+)
 
 
 @dataclass
@@ -22,11 +27,11 @@ class RiskScoringService:
 
     Current factor weights:
 
-        Gradient             25
+        Gradient             20
         Curve                20
         Operating speed      20
         Traffic              20
-        Pedestrian activity  15
+        Pedestrian activity  20
 
     These rules are application-level screening rules.
     They should be calibrated and validated against the
@@ -38,11 +43,11 @@ class RiskScoringService:
     # Factor weights
     # --------------------------------------------------
 
-    GRADIENT_WEIGHT = 25.0
+    GRADIENT_WEIGHT = 20.0
     CURVE_WEIGHT = 20.0
     SPEED_WEIGHT = 20.0
     TRAFFIC_WEIGHT = 20.0
-    PEDESTRIAN_WEIGHT = 15.0
+    PEDESTRIAN_WEIGHT = 20.0
 
     # --------------------------------------------------
     # Risk-level thresholds
@@ -60,6 +65,8 @@ class RiskScoringService:
     def gradient_risk(
         cls,
         gradient: float | None,
+        road_class: str = "collector",
+        terrain_class: str | None = None,
     ) -> tuple[float, str | None]:
         """
         Calculate the risk contribution from road gradient.
@@ -73,16 +80,9 @@ class RiskScoringService:
 
         value = abs(float(gradient))
 
-        if value < 3.0:
+        if terrain_class is None or value <= URBAN_MAX_GRADIENT_PERCENT:
             return 0.0, None
-
-        if value < 5.0:
-            return 10.0, "moderate_gradient"
-
-        if value < 8.0:
-            return 18.0, "high_gradient"
-
-        return cls.GRADIENT_WEIGHT, "very_high_gradient"
+        return cls.GRADIENT_WEIGHT, "gradient_over_irc_limit"
 
     # --------------------------------------------------
     # Curve risk
@@ -92,6 +92,8 @@ class RiskScoringService:
     def curve_risk(
         cls,
         curve_radius: float | None,
+        road_class: str = "collector",
+        terrain_class: str | None = None,
     ) -> tuple[float, str | None]:
         """
         Calculate risk contribution from horizontal
@@ -108,15 +110,12 @@ class RiskScoringService:
         if radius <= 0:
             return 0.0, None
 
-        if radius >= 500.0:
+        minimum_radius = urban_minimum_curve_radius(road_class, terrain_class)
+        if minimum_radius is None:
             return 0.0, None
 
-        if radius >= 250.0:
-            return 8.0, "moderate_curve"
-
-        if radius >= 100.0:
-            return 15.0, "sharp_curve"
-
+        if radius >= minimum_radius:
+            return 0.0, None
         return cls.CURVE_WEIGHT, "very_sharp_curve"
 
     # --------------------------------------------------
@@ -127,6 +126,8 @@ class RiskScoringService:
     def speed_risk(
         cls,
         operating_speed: float | None,
+        road_class: str = "collector",
+        terrain_class: str | None = None,
     ) -> tuple[float, str | None]:
         """
         Calculate risk contribution from indicative
@@ -141,13 +142,16 @@ class RiskScoringService:
         if speed < 0:
             return 0.0, None
 
-        if speed <= 30.0:
+        design_speed = urban_design_speed(road_class, terrain_class)
+        if design_speed is None:
+            return 0.0, None
+        if speed <= design_speed:
             return 0.0, None
 
-        if speed <= 50.0:
+        if speed <= design_speed * 1.15:
             return 8.0, "moderate_operating_speed"
 
-        if speed <= 70.0:
+        if speed <= design_speed * 1.3:
             return 14.0, "high_operating_speed"
 
         return cls.SPEED_WEIGHT, "very_high_operating_speed"
@@ -259,6 +263,8 @@ class RiskScoringService:
     def calculate_risk(
         self,
         metrics: SegmentMetrics,
+        road_class: str = "collector",
+        terrain_class: str | None = None,
     ) -> RiskResult:
         """
         Calculate the overall risk score for a segment.
@@ -275,7 +281,9 @@ class RiskScoringService:
         # --------------------------------------------------
 
         contribution, flag = self.gradient_risk(
-            metrics.gradient
+            metrics.gradient,
+            road_class,
+            terrain_class,
         )
 
         score += contribution
@@ -288,7 +296,9 @@ class RiskScoringService:
         # --------------------------------------------------
 
         contribution, flag = self.curve_risk(
-            metrics.curve_radius
+            metrics.curve_radius,
+            road_class,
+            terrain_class,
         )
 
         score += contribution
@@ -301,7 +311,9 @@ class RiskScoringService:
         # --------------------------------------------------
 
         contribution, flag = self.speed_risk(
-            metrics.operating_speed
+            metrics.operating_speed,
+            road_class,
+            terrain_class,
         )
 
         score += contribution

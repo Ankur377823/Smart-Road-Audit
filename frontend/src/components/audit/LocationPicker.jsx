@@ -1127,7 +1127,7 @@ function LocationPicker({
                 </span>
 
                 {selectedLocation.place_id && (
-                  <span className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-green-600">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-white px-3 py-1.5 text-xs font-medium text-emerald-600">
                     <IconCheck className="size-3.5" />
                     Road matched
                   </span>

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getAudit, getAuditChecklist, getAuditSegments } from "../services/api";
+import { generateAuditChecklist, getAudit, getAuditChecklist, getAuditSegments, getSegment } from "../services/api";
 import AppShell from "../components/layout/AppShell";
 import PotholeReportCard from "../components/pothole/PotholeReportCard";
 import { Badge, EmptyState, Notice, PageHeader, RiskBadge, Section, SkeletonPage, StatCard, StatusBadge } from "../components/common/ui";
@@ -10,42 +10,101 @@ import { formatDate, formatRadius, formatScore } from "../utils/format";
 
 const RISK_LEVELS = ["low", "medium", "high", "critical"];
 const RISK_BAR = { low: "bg-emerald-500", medium: "bg-amber-500", high: "bg-orange-500", critical: "bg-red-500" };
+const CHECKLIST_TONE = { pass: "green", fail: "red", flagged: "orange", review: "blue" };
+const IRC_86_SOURCE = "https://law.resource.org/pub/in/bis/irc/irc.gov.in.086.2018.pdf";
 
-function getRiskContributions(segment) {
-  const gradient = Number(segment.gradient);
-  const curveRadius = Number(segment.curve_radius);
-  const operatingSpeed = Number(segment.operating_speed);
-  const traffic = segment.traffic_level?.toLowerCase();
-  const pedestrian = segment.pedestrian_activity?.toLowerCase();
+// IRC:86-2018 design speed (km/h) by road class and terrain, and the minimum curve radius (m) for each speed.
+// Mirrors backend/app/services/risk_scoring.py so the breakdown adds up to the stored score.
+const DESIGN_SPEEDS = {
+  arterial: { plain: 60, rolling: 50, mountainous: 40, steep: 40 },
+  collector: { plain: 40, rolling: 40, mountainous: 30, steep: 30 },
+  local: { plain: 30, rolling: 30, mountainous: 20, steep: 20 },
+};
+const MINIMUM_RADII = { 20: 15, 30: 30, 40: 60, 50: 90, 60: 130 };
+const MAX_GRADIENT_PERCENT = 4;
 
-  let gradientPoints = 0;
-  if (Number.isFinite(gradient)) {
-    const value = Math.abs(gradient);
-    gradientPoints = value < 3 ? 0 : value < 5 ? 10 : value < 8 ? 18 : 25;
-  }
-
-  let curvePoints = 0;
-  if (Number.isFinite(curveRadius) && curveRadius > 0) {
-    curvePoints = curveRadius >= 500 ? 0 : curveRadius >= 250 ? 8 : curveRadius >= 100 ? 15 : 20;
-  }
-
-  let speedPoints = 0;
-  if (Number.isFinite(operatingSpeed) && operatingSpeed >= 0) {
-    speedPoints = operatingSpeed <= 30 ? 0 : operatingSpeed <= 50 ? 8 : operatingSpeed <= 70 ? 14 : 20;
-  }
-
-  return [
-    { label: "Gradient", value: gradientPoints, maximum: 25, detail: Number.isFinite(gradient) ? `${gradient}%` : "Not available" },
-    { label: "Curve sharpness", value: curvePoints, maximum: 20, detail: Number.isFinite(curveRadius) ? `${curveRadius} m radius` : "Not available" },
-    { label: "Operating speed", value: speedPoints, maximum: 20, detail: Number.isFinite(operatingSpeed) ? `${operatingSpeed} km/h` : "Not available" },
-    { label: "Traffic level", value: traffic === "medium" ? 10 : traffic === "high" ? 20 : 0, maximum: 20, detail: segment.traffic_level || "Not available" },
-    { label: "Pedestrian activity", value: pedestrian === "medium" ? 8 : pedestrian === "high" ? 15 : 0, maximum: 15, detail: segment.pedestrian_activity || "Not available" },
-  ];
+function terrainGroup(terrainClass) {
+  if (terrainClass === "plain" || terrainClass === "rolling") return "Plain / rolling";
+  if (terrainClass === "mountainous" || terrainClass === "steep") return "Mountainous / steep";
+  return "Unavailable";
 }
 
-function Disclosure({ summary, children, className = "" }) {
+function terrainHint(audit) {
+  if (!audit.terrain_class) return "Not enough elevation data to classify";
+  const parts = [`IRC class: ${audit.terrain_class}`];
+  const profile = Number(audit.terrain_profile_length_m);
+  if (audit.terrain_profile_length_m != null && Number.isFinite(profile)) {
+    parts.push(`${Math.round(profile)} m profile${profile < 1000 ? " (under 1 km)" : ""}`);
+  }
+  const slope = Number(audit.terrain_cross_slope_percent);
+  if (audit.terrain_cross_slope_percent != null && Number.isFinite(slope)) parts.push(`${slope}% cross slope`);
+  return parts.join(" · ");
+}
+
+const toNumber = (value) => (value == null ? NaN : Number(value));
+
+function getRiskContributions(segment) {
+  const gradient = toNumber(segment.gradient);
+  const curveRadius = toNumber(segment.curve_radius);
+  const operatingSpeed = toNumber(segment.operating_speed);
+  const traffic = segment.traffic_level?.toLowerCase();
+  const pedestrian = segment.pedestrian_activity?.toLowerCase();
+  const designSpeed = DESIGN_SPEEDS[segment.road_class]?.[segment.terrain_class];
+  const minimumRadius = MINIMUM_RADII[designSpeed];
+
+  const gradientPoints =
+    Number.isFinite(gradient) && segment.terrain_class && Math.abs(gradient) > MAX_GRADIENT_PERCENT ? 20 : 0;
+
+  const curvePoints =
+    Number.isFinite(curveRadius) && curveRadius > 0 && minimumRadius !== undefined && curveRadius < minimumRadius ? 20 : 0;
+
+  let speedPoints = 0;
+  if (Number.isFinite(operatingSpeed) && operatingSpeed >= 0 && designSpeed !== undefined && operatingSpeed > designSpeed) {
+    speedPoints = operatingSpeed <= designSpeed * 1.15 ? 8 : operatingSpeed <= designSpeed * 1.3 ? 14 : 20;
+  }
+
+  const curveDetail = Number.isFinite(curveRadius)
+    ? `${curveRadius} m radius${minimumRadius ? `, minimum ${minimumRadius} m` : ""}`
+    : segment.curve_radius_status === "not_defined"
+      ? "no curve detected"
+      : "not enough geometry";
+
+  const trafficDetail = segment.traffic_level
+    ? `${segment.traffic_level}${
+        segment.traffic_delay_percent == null ? "" : `, +${Number(segment.traffic_delay_percent).toFixed(1)}% route delay`
+      }`
+    : "no route traffic data, not scored";
+
+  const pedestrianDetail = segment.pedestrian_activity
+    ? `${segment.pedestrian_activity}, ${segment.pedestrian_place_count ?? 0} activity places nearby`
+    : "no complete Places data, not scored";
+
+  return [
+    {
+      label: "Gradient",
+      value: gradientPoints,
+      detail: Number.isFinite(gradient) ? `${gradient}%` : "not available",
+    },
+    { label: "Curve sharpness", value: curvePoints, detail: curveDetail },
+    {
+      label: "Operating speed",
+      value: speedPoints,
+      detail: Number.isFinite(operatingSpeed)
+        ? `${operatingSpeed} km/h${designSpeed ? `, design ${designSpeed} km/h` : ""}`
+        : "not available",
+    },
+    { label: "Estimated congestion", value: traffic === "medium" ? 10 : traffic === "high" ? 20 : 0, detail: trafficDetail },
+    {
+      label: "Pedestrian activity",
+      value: pedestrian === "medium" ? 8 : pedestrian === "high" ? 20 : 0,
+      detail: pedestrianDetail,
+    },
+  ].map((factor) => ({ ...factor, maximum: 20 }));
+}
+
+function Disclosure({ summary, children, className = "", onToggle }) {
   return (
-    <details className={`group ${className}`}>
+    <details className={`group ${className}`} onToggle={onToggle}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
         {summary}
         <IconChevronDown className="size-5 shrink-0 text-slate-400 transition group-open:rotate-180" />
@@ -55,7 +114,54 @@ function Disclosure({ summary, children, className = "" }) {
   );
 }
 
+function Subsections({ segmentId }) {
+  const [details, setDetails] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    getSegment(segmentId)
+      .then((data) => !cancelled && setDetails(data))
+      .catch((err) => !cancelled && setError(err.message || "Unable to load the sections."));
+    return () => {
+      cancelled = true;
+    };
+  }, [segmentId]);
+
+  if (error) return <p className="border-t border-slate-200 pt-3 text-sm text-red-600">{error}</p>;
+  if (!details) return <p className="border-t border-slate-200 pt-3 text-sm text-slate-500">Loading sections…</p>;
+
+  const sections = details.subsegments || [];
+  if (sections.length < 2) return null;
+
+  return (
+    <div className="border-t border-slate-200 pt-3">
+      <p className="text-sm font-medium text-slate-700">
+        {sections.length} section{sections.length === 1 ? "" : "s"} over {Number(details.length_m).toFixed(0)} m
+      </p>
+      <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {sections.map((section) => (
+          <li
+            key={section.subsection_number}
+            className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+          >
+            <span className="text-slate-700">
+              Section {section.subsection_number}
+              <span className="ml-1.5 text-slate-500">{Number(section.length_m).toFixed(0)} m</span>
+            </span>
+            <span className="font-medium tabular-nums text-slate-900">
+              {typeof section.risk_score === "number" ? section.risk_score.toFixed(1) : "–"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-slate-500">Sections share the segment's score until section-level measurements are available.</p>
+    </div>
+  );
+}
+
 function SegmentRow({ segment }) {
+  const [opened, setOpened] = useState(false);
   const contributions = getRiskContributions(segment);
   const total = contributions.reduce((sum, factor) => sum + factor.value, 0);
   const score = typeof segment.risk_score === "number" ? Math.round(segment.risk_score) : total;
@@ -65,6 +171,7 @@ function SegmentRow({ segment }) {
     <li>
       <Disclosure
         className="px-4 py-3.5 sm:px-6"
+        onToggle={(event) => event.currentTarget.open && setOpened(true)}
         summary={
           <div className="flex min-w-0 flex-1 items-center gap-3">
             <div className="min-w-0 flex-1">
@@ -74,8 +181,9 @@ function SegmentRow({ segment }) {
               </p>
               <p className="mt-0.5 text-xs text-slate-500">
                 {segment.length_m ? `${Number(segment.length_m).toFixed(0)} m` : "–"}
+                <span className="capitalize"> · {segment.road_class}</span>
+                {segment.terrain_class && ` · ${terrainGroup(segment.terrain_class).toLowerCase()}`}
                 {typeof segment.max_speed === "number" && ` · max ${Number(segment.max_speed).toFixed(0)} km/h`}
-                {segment.traffic_level && ` · ${segment.traffic_level.toLowerCase()} traffic`}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -88,9 +196,9 @@ function SegmentRow({ segment }) {
         <div className="mt-4 space-y-3 rounded-lg bg-slate-50 p-4">
           {contributions.map((factor) => (
             <div key={factor.label}>
-              <div className="flex items-center justify-between gap-3 text-sm">
+              <div className="flex items-start justify-between gap-3 text-sm">
                 <span className="text-slate-700">
-                  {factor.label} <span className="text-xs capitalize text-slate-500">({factor.detail})</span>
+                  {factor.label} <span className="text-xs text-slate-500">({factor.detail})</span>
                 </span>
                 <span className="font-medium tabular-nums text-slate-900">
                   {factor.value}/{factor.maximum}
@@ -104,6 +212,8 @@ function SegmentRow({ segment }) {
           <p className="border-t border-slate-200 pt-3 text-xs text-slate-500">
             {contributions.map((factor) => factor.value).join(" + ")} = {total} points
           </p>
+          {/* The segment list doesn't carry the section count, so sections load when a segment is first opened */}
+          {opened && <Subsections segmentId={segment.id} />}
         </div>
       </Disclosure>
     </li>
@@ -119,6 +229,8 @@ function AuditDetails() {
   const [checklist, setChecklist] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [checklistError, setChecklistError] = useState("");
 
   useEffect(() => {
     if (!auditId) return;
@@ -133,6 +245,19 @@ function AuditDetails() {
       .catch((err) => setError(err.message || "Unable to load audit details."))
       .finally(() => setLoading(false));
   }, [auditId]);
+
+  async function handleGenerateChecklist() {
+    setGenerating(true);
+    setChecklistError("");
+    try {
+      await generateAuditChecklist(auditId);
+      setChecklist((await getAuditChecklist(auditId)) || []);
+    } catch (err) {
+      setChecklistError(err.message || "Unable to generate the checklist.");
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   const riskDistribution = useMemo(() => {
     const distribution = Object.fromEntries(RISK_LEVELS.map((level) => [level, 0]));
@@ -149,12 +274,14 @@ function AuditDetails() {
   }, [segments]);
 
   const checklistStats = useMemo(() => {
-    const stats = { pass: 0, fail: 0, pending: 0 };
+    const stats = { pass: 0, flagged: 0, review: 0, pending: 0, siteVisit: 0 };
     checklist.forEach((item) => {
       const status = item.status?.toLowerCase();
       if (status === "pass") stats.pass += 1;
-      else if (status === "fail") stats.fail += 1;
+      else if (status === "flagged" || status === "fail") stats.flagged += 1;
+      else if (status === "review") stats.review += 1;
       else stats.pending += 1;
+      if (item.field_verification_required) stats.siteVisit += 1;
     });
     return stats;
   }, [checklist]);
@@ -193,11 +320,14 @@ function AuditDetails() {
         backLabel="All audits"
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <StatCard label="Audit radius" value={formatRadius(audit.radius_m)} />
         <StatCard label="Road class" value={<span className="capitalize">{audit.road_class}</span>} />
         <StatCard label="Segments" value={segments.length} />
         <StatCard label="Compliance" value={formatScore(audit.compliance_score)} />
+        <div className="col-span-2 lg:col-span-1">
+          <StatCard label="Terrain (automatic)" value={terrainGroup(audit.terrain_class)} hint={terrainHint(audit)} />
+        </div>
       </div>
 
       <section className="card mb-6 p-4 sm:p-6">
@@ -233,19 +363,23 @@ function AuditDetails() {
         />
       </div>
 
-      <Section className="mb-6" title="Road segments" description="Tap a segment to see how its risk score is built up.">
+      <Section className="mb-6" title="Road segments" description="Open a segment to see how its risk score is built up.">
         <Disclosure
-          className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 sm:px-6"
-          summary={<span className="text-sm font-medium text-slate-700">How the risk score is calculated</span>}
+          className="border-b border-slate-200 bg-slate-50/60 px-4 sm:px-6"
+          summary={<span className="block py-3 text-sm font-medium text-slate-700">How the risk score is calculated</span>}
         >
-          <div className="mt-3 space-y-2 pb-1 text-sm leading-6 text-slate-600">
+          <div className="space-y-2 pb-4 text-sm leading-6 text-slate-600">
             <p>
-              Each factor adds risk points on a 0–100 scale: gradient (25), curve sharpness (20), operating speed (20),
-              traffic (20) and pedestrian activity (15). Scores read as 0–24 low, 25–49 medium, 50–74 high, 75–100 critical.
+              Five factors can each add up to 20 points on a 0–100 scale. Gradient adds risk above {MAX_GRADIENT_PERCENT}%.
+              Curve sharpness adds risk when the radius is below the IRC:86-2018 minimum for the design speed, and operating
+              speed is compared with that design speed (road class and terrain). Estimated congestion compares Google Routes
+              travel time with and without traffic: under 100% extra delay is low, 100–500% medium, 500% or more high.
+              Pedestrian activity is estimated from nearby activity places.
             </p>
             <p>
-              It is a screening index for comparing segments, not a crash probability. Road class is the category chosen
-              when the audit was created, operating speed is an estimate, and max speed is shown for reference only.
+              Scores read as 0–24 low, 25–49 medium, 50–74 high and 75–100 critical. It is a screening index for comparing
+              segments, not a crash probability. Terrain is classified automatically from elevation along the road, missing
+              data is not scored, and max speed is shown for reference only.
             </p>
           </div>
         </Disclosure>
@@ -263,39 +397,71 @@ function AuditDetails() {
 
       <Section
         title="IRC audit checklist"
-        description="Automated screening and items that need a site visit."
+        description="Checked separately for each segment. Missing measurements stay pending."
         actions={
-          checklist.length > 0 && (
-            <>
-              <Badge tone="green">{checklistStats.pass} pass</Badge>
-              <Badge tone="red">{checklistStats.fail} fail</Badge>
-              <Badge tone="amber">{checklistStats.pending} pending</Badge>
-            </>
-          )
+          <>
+            {checklist.length > 0 && (
+              <>
+                <Badge tone="green">{checklistStats.pass} pass</Badge>
+                <Badge tone="orange">{checklistStats.flagged} flagged</Badge>
+                {checklistStats.review > 0 && <Badge tone="blue">{checklistStats.review} review</Badge>}
+                <Badge tone="amber">{checklistStats.pending} pending</Badge>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={handleGenerateChecklist}
+              disabled={generating || segments.length === 0}
+              aria-busy={generating}
+              title={segments.length === 0 ? "The audit has no road segments yet" : undefined}
+              className="btn btn-secondary"
+            >
+              {generating ? "Generating…" : checklist.length ? "Regenerate checklist" : "Generate checklist"}
+            </button>
+          </>
         }
       >
+        <p className="border-b border-slate-200 bg-slate-50/60 px-4 py-3 text-xs leading-5 text-slate-500 sm:px-6">
+          Gradient, design speed and minimum radius limits come from IRC:86-2018 (Clause 9.2, Tables 3.1 and 8.2, 7%
+          superelevation). Speed bands, congestion and pedestrian classes are project screening rules, so this checklist is
+          not a full compliance certificate.{" "}
+          <a href={IRC_86_SOURCE} target="_blank" rel="noreferrer" className="font-medium text-blue-700 underline">
+            IRC:86-2018 source
+          </a>
+        </p>
+
+        {checklistError && <Notice tone="error" className="m-4 sm:mx-6">{checklistError}</Notice>}
+
         {checklist.length === 0 ? (
-          <EmptyState title="No checklist items" description="Checklist generation has not completed for this audit." />
+          <EmptyState
+            title="No checklist items"
+            description={
+              segments.length
+                ? "Generate the checklist from this audit's road segments."
+                : "The checklist needs road segments, and this audit has none yet."
+            }
+          />
         ) : (
           <ul className="divide-y divide-slate-100">
-            {checklist.map((item) => (
-              <li key={item.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-6">
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500">
-                    {item.code && <span className="mr-2 font-semibold text-slate-700">{item.code}</span>}
-                    <span className="capitalize">{item.category}</span>
-                  </p>
-                  <p className="mt-1 text-sm font-medium text-slate-900">{item.question}</p>
-                  {item.reason && <p className="mt-1 text-sm text-slate-500">{item.reason}</p>}
-                </div>
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <Badge tone={item.status === "pass" ? "green" : item.status === "fail" ? "red" : "amber"}>
-                    {item.status || "pending"}
-                  </Badge>
-                  {item.field_verification_required && <Badge tone="blue">Site visit</Badge>}
-                </div>
-              </li>
-            ))}
+            {checklist.map((item) => {
+              const status = item.status?.toLowerCase() || "pending";
+              return (
+                <li key={item.id} className="flex flex-col gap-2 px-4 py-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6 sm:px-6">
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-500">
+                      {item.code && <span className="mr-2 font-semibold text-slate-700">{item.code}</span>}
+                      <span className="capitalize">{item.category}</span>
+                    </p>
+                    <p className="mt-1 text-sm font-medium text-slate-900">{item.question}</p>
+                    {item.reason && <p className="mt-1 text-sm text-slate-500">{item.reason}</p>}
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    <Badge tone={CHECKLIST_TONE[status] || "amber"}>{status}</Badge>
+                    {item.field_verification_required && <Badge tone="blue">Site visit</Badge>}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Section>

@@ -49,7 +49,8 @@ function Dashboard() {
         title="Dashboard"
         description="Road safety audits, risk analysis and pothole screening at a glance."
         actions={
-          <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary">
+          // The top bar shows "New audit" from tablet width up; the page button covers phones
+          <button type="button" onClick={() => navigate("/audits/create")} className="btn btn-primary md:hidden">
             <IconPlus className="size-4" />
             New audit
           </button>
@@ -88,7 +89,7 @@ function Dashboard() {
         title="Recent audits"
         actions={
           audits.length > 0 && (
-            <Link to="/audits" className="text-sm font-semibold text-blue-600 hover:text-blue-700">
+            <Link to="/audits" className="-my-3 py-3 text-sm font-semibold text-blue-600 hover:text-blue-700">
               View all
             </Link>
           )

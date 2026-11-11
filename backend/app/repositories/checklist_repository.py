@@ -73,6 +73,15 @@ class ChecklistRepository:
 
         return list(self.db.scalars(statement).all())
 
+    def delete_by_audit_id(self, audit_id: int) -> None:
+        """Remove generated checklist results before an audit is rebuilt."""
+        statement = select(ChecklistItem).where(
+            ChecklistItem.audit_id == audit_id
+        )
+        for item in self.db.scalars(statement).all():
+            self.db.delete(item)
+        self.db.commit()
+
     def get_by_segment_id(
         self,
         segment_id: int,
