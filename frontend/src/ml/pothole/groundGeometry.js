@@ -9,6 +9,8 @@
 export const DEFAULT_HFOV_DEG = 66
 // Used when the device reports no orientation (e.g. desktop webcams)
 export const DEFAULT_PITCH_DEG = 30
+// Largest plausible size of one pothole (width or length); larger projections are treated as unmeasured
+const MAX_POTHOLE_SIZE_MM = 3000
 
 // Survey modes: phone height above the road (typical mounts)
 export const CAMERA_HEIGHTS = [
@@ -73,9 +75,14 @@ export function measureOnGround(det, frameW, frameH, camera) {
   // Beyond ~15 m a few pixels span tens of centimetres: too uncertain to report
   if (distanceM > 15) return null
 
+  const widthMm = Math.round((Math.max(...xs) - Math.min(...xs)) * 1000)
+  const lengthMm = Math.round((Math.max(...zs) - Math.min(...zs)) * 1000)
+  // A single pothole is not several metres across; such values come from a wrong tilt or height
+  if (widthMm > MAX_POTHOLE_SIZE_MM || lengthMm > MAX_POTHOLE_SIZE_MM) return null
+
   return {
-    widthMm: Math.round((Math.max(...xs) - Math.min(...xs)) * 1000),
-    lengthMm: Math.round((Math.max(...zs) - Math.min(...zs)) * 1000),
+    widthMm,
+    lengthMm,
     areaM2: Math.round(Math.abs(area / 2) * 1000) / 1000,
     distanceM: Math.round(distanceM * 10) / 10,
   }

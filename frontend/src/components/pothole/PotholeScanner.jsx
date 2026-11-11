@@ -897,16 +897,29 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     })
   }
 
-  const autoSaveScan = async (potholes, auditId = null) => {
-    if (isSimulation || potholes.length === 0) return
+  // Saves run one after another (never in parallel), so a scan is never created twice
+  const saveChainRef = useRef(Promise.resolve())
+  const historyAuditRef = useRef(null)
+  const autoSaveTimerRef = useRef(null)
+
+  const autoSaveScan = (potholes, auditId = historyAuditRef.current) => {
+    if (isSimulation || potholes.length === 0) return Promise.resolve(null)
+    clearTimeout(autoSaveTimerRef.current)
     setHistorySave((prev) => ({ ...prev, status: 'saving' }))
-    try {
-      const saved = await saveScanToHistory(potholes, auditId)
-      setHistorySave({ status: 'saved', auditId: saved?.audit_id ?? null })
-    } catch (err) {
-      setHistorySave((prev) => ({ ...prev, status: 'error' }))
-      console.warn('Scan history save failed:', err.message)
-    }
+    const run = saveChainRef.current.then(async () => {
+      try {
+        const saved = await saveScanToHistory(potholes, auditId)
+        historyAuditRef.current = saved?.audit_id ?? null
+        setHistorySave({ status: 'saved', auditId: saved?.audit_id ?? null })
+        return saved
+      } catch (err) {
+        setHistorySave((prev) => ({ ...prev, status: 'error' }))
+        console.warn('Scan history save failed:', err.message)
+        throw err
+      }
+    })
+    saveChainRef.current = run.catch(() => null)
+    return run
   }
 
   const handleSaveToAudit = async () => {
@@ -927,9 +940,8 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setNotice(null)
 
     try {
-      const result = await saveScanToHistory(sessionPotholes, selectedAuditId)
+      const result = await autoSaveScan(sessionPotholes, selectedAuditId)
       const savedCount = result?.total_potholes ?? sessionPotholes.length
-      setHistorySave({ status: 'saved', auditId: result?.audit_id ?? Number(selectedAuditId) })
       setNotice({
         type: 'success',
         text: `Saved ${savedCount} pothole${savedCount === 1 ? '' : 's'} to Audit #${selectedAuditId}. The scan is also in History.`,
@@ -944,7 +956,9 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
 
   const handleClearSession = () => {
     // The saved scan stays in History; the next recording starts a new scan
+    clearTimeout(autoSaveTimerRef.current)
     scanRef.current = { id: null, startedAt: null }
+    historyAuditRef.current = null
     setHistorySave({ status: 'idle', auditId: null })
     setSessionPotholes([])
     setCurrentDetections([])
@@ -960,7 +974,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     stopCamera()
     setScanEnded(true)
     // Every scan with potholes is kept in History, even without an audit
-    autoSaveScan(sessionPotholes, historySave.auditId)
+    autoSaveScan(sessionPotholes).catch(() => {})
     requestAnimationFrame(() => listRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
@@ -981,20 +995,25 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
     setNotice(null)
   }
 
-  // Keep the saved scan in History in step with measured depths entered after it was saved
+  // Keep History up to date while scanning: save shortly after each new pothole or measured depth,
+  // so a scan is kept even if the page is closed without pressing Stop
   const sessionVersionRef = useRef(sessionPotholes)
   useEffect(() => {
     const changed = sessionVersionRef.current !== sessionPotholes
     sessionVersionRef.current = sessionPotholes
-    if (changed && scanEnded && historySave.status === 'saved' && sessionPotholes.length) {
-      autoSaveScan(sessionPotholes, historySave.auditId)
-    }
+    if (!changed || sessionPotholes.length === 0 || isSimulation) return undefined
+    clearTimeout(autoSaveTimerRef.current)
+    autoSaveTimerRef.current = setTimeout(() => autoSaveScan(sessionPotholes).catch(() => {}), 1500)
+    return undefined
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionPotholes])
+  useEffect(() => () => clearTimeout(autoSaveTimerRef.current), [])
 
   const handleGenerateReport = async () => {
     const target = openReportWindow()
     setReportBusy(true)
+    // The report's scan is always kept in History too
+    autoSaveScan(sessionPotholes).catch(() => {})
     try {
       const audit = audits.find((a) => String(a.id) === String(selectedAuditId))
       await openPotholeReport({
@@ -1296,7 +1315,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
           {!saving && (sessionPotholes.length === 0 || !selectedAuditId) && historySave.status === 'idle' && (
             <p className="mt-2 text-center text-xs text-slate-500">
               {sessionPotholes.length === 0
-                ? 'Start the camera to record potholes. Every scan is saved to History when you stop it.'
+                ? 'Start the camera to record potholes. Every scan is saved to History automatically.'
                 : audits.length ? 'Select an audit above to add this scan to it.' : 'Create an audit to add this scan to it.'}
             </p>
           )}
@@ -1323,7 +1342,7 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
                   <span>Couldn't save this scan to History.</span>
                   <button
                     type="button"
-                    onClick={() => autoSaveScan(sessionPotholes, historySave.auditId)}
+                    onClick={() => autoSaveScan(sessionPotholes).catch(() => {})}
                     className="-my-2 py-2 font-semibold text-red-700 underline"
                   >
                     Try again
