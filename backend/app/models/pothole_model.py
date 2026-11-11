@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, backref, mapped_column, relationship
 
 from app.db.database import Base
 
@@ -163,7 +163,9 @@ class PotholeDetection(Base):
     )
 
     # Relationship to audit
+    # Deleting an audit deletes its potholes in the database (ON DELETE CASCADE on audit_id).
+    # passive_deletes stops SQLAlchemy from first setting audit_id to NULL, which Postgres rejects.
     audit: Mapped["Audit"] = relationship(
         "Audit",
-        backref="pothole_detections",
+        backref=backref("pothole_detections", passive_deletes=True),
     )

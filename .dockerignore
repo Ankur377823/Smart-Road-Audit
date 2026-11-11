@@ -1,0 +1,20 @@
+# Keep the Docker build context small and free of local state (used by the root Dockerfile / Render)
+.git
+**/node_modules
+frontend/dist
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+myenv
+**/.env
+**/.env.*
+**/*.db
+**/*.db.bak
+**/*.sqlite
+**/*.sqlite3
+backend/tests
+backend/app/weights/archive
+PORTFOLIO.md
+.claude
+.vscode
+.idea

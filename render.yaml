@@ -1,32 +1,23 @@
-# Render Blueprint Specification for SmartRoad-Audit
-# Documentation: https://render.com/docs/blueprint-spec
-
-version: "1"
-
-databases:
-  - name: smartroad-db
-    databaseName: smartroad_audit
-    user: postgres
-    plan: free
+# Render Blueprint for SmartRoad Audit
+# Docs: https://render.com/docs/blueprint-spec
+#
+# One Docker web service runs everything: the FastAPI API and the built React app (same URL).
+# The database is external (Neon Postgres): paste its connection string as DATABASE_URL when Render asks.
+# Tables are created automatically on first start, so a fresh, empty Neon database is enough.
 
 services:
-  # -------------------------------------------------------------
-  # Backend Web Service (FastAPI via Docker, also serves the built frontend)
-  # Pothole detection runs in the browser (ONNX model in the frontend build),
-  # so the image has no PyTorch and stays well under the free plan's RAM.
-  # -------------------------------------------------------------
   - type: web
     name: smartroad-backend
     runtime: docker
-    dockerfilePath: Dockerfile
+    dockerfilePath: ./Dockerfile
     dockerContext: .
     plan: free
     healthCheckPath: /health
     envVars:
+      # Neon connection string, e.g.
+      # postgresql://USER:PASSWORD@ep-xxxx-pooler.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require
       - key: DATABASE_URL
-        fromDatabase:
-          name: smartroad-db
-          property: connectionString
+        sync: false
       - key: APP_NAME
         value: SmartRoad Audit API
       - key: PORT
@@ -35,31 +26,9 @@ services:
         value: "false"
       - key: CORS_ORIGINS
         value: "*"
+      # Server key for Roads, Elevation, Routes and Places APIs
       - key: GOOGLE_MAPS_API_KEY
         sync: false
-      # Browser key for the maps in the UI (inlined at build time; restrict it to your domain)
-      - key: VITE_GOOGLE_MAPS_API_KEY
-        sync: false
-
-  # -------------------------------------------------------------
-  # Frontend Web Service (React 19 + Vite Static Site)
-  # -------------------------------------------------------------
-  - type: web
-    name: smartroad-frontend
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
-    plan: free
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_BASE_URL
-        fromService:
-          type: web
-          name: smartroad-backend
-          property: url
+      # Browser key for the maps in the UI (built into the frontend; restrict it to your domain)
       - key: VITE_GOOGLE_MAPS_API_KEY
         sync: false
