@@ -10,7 +10,7 @@ import { formatDate, formatRadius, formatScore } from "../utils/format";
 function terrainLabel(terrainClass) {
   if (terrainClass === "plain" || terrainClass === "rolling") return "Plain / rolling";
   if (terrainClass === "mountainous" || terrainClass === "steep") return "Mountainous / steep";
-  return "Terrain pending";
+  return "Pending";
 }
 
 function AuditHistory() {
@@ -67,7 +67,7 @@ function AuditHistory() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium text-slate-900">{audit.location_name || "Unnamed audit"}</p>
                             <p className="mt-1 text-xs text-slate-500">
-                              #{audit.id} · <span className="capitalize">{audit.road_class}</span> · {terrainLabel(audit.terrain_class)} ·{" "}
+                              #{audit.id} · <span className="capitalize">{audit.road_class}</span> · Terrain: {terrainLabel(audit.terrain_class)} ·{" "}
                               {formatRadius(audit.radius_m)} · {formatDate(audit.created_at)}
                             </p>
                             <div className="mt-2 flex items-center gap-2">
@@ -108,7 +108,7 @@ function AuditHistory() {
                             </td>
                             <td className="px-6 py-4 text-slate-700">
                               <p className="capitalize">{audit.road_class}</p>
-                              <p className="text-xs text-slate-500">{terrainLabel(audit.terrain_class)}</p>
+                              <p className="text-xs text-slate-500">Terrain: {terrainLabel(audit.terrain_class)}</p>
                             </td>
                             <td className="px-6 py-4 text-slate-700">{formatRadius(audit.radius_m)}</td>
                             <td className="px-6 py-4"><StatusBadge status={audit.status} /></td>

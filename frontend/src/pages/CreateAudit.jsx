@@ -102,7 +102,9 @@ function CreateAudit() {
           <fieldset className="mt-6">
             <legend className="field-label">Functional road class</legend>
             <p className="mt-1 text-xs text-slate-500">
-              Terrain is classified automatically from elevation along the road; choose the road class here.
+              Terrain is classified automatically from elevation samples using up to a 1 km road profile and 1 to 5 km
+              cross-slope transects. Shorter available profiles are labeled in the audit result. Choose the road class
+              separately.
             </p>
             <div className="mt-3 space-y-2">
               {ROAD_CLASSES.map((option) => {

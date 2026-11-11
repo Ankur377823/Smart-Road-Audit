@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.repositories.segment_repository import SegmentRepository
-from app.schemas.segment import SegmentResponse, SegmentSubsectionResponse
+from app.schemas.segment import SegmentResponse
 from app.services.segmentation import SegmentationService
 
 
@@ -57,7 +57,7 @@ def get_segment(
     ]
     result = SegmentResponse.model_validate(segment)
     result.subsection_count = len(subsections)
-    result.subsegments = [SegmentSubsectionResponse(**item) for item in subsections]
+    result.subsegments = subsections
     if segment.risk_score is not None:
         total_length = sum(item["length_m"] for item in subsections)
         if total_length > 0:
