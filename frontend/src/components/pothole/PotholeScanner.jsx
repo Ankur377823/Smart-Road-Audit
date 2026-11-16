@@ -554,10 +554,13 @@ function PotholeScanner({ audits = [], currentAuditId = null, onSaved = () => {}
       }
 
       const track = stream.getVideoTracks()[0]
-      // Phones report which way the camera faces; laptop webcams usually don't, so they keep scanning
+      // On phones and tablets the selfie camera is never pointed at the road, so it is not scanned.
+      // Laptop and desktop webcams often report themselves as front-facing too, but they are the only
+      // camera there, so they always scan.
       let isFront = false
       try {
-        isFront = track?.getSettings?.().facingMode === 'user'
+        const handheld = navigator.userAgentData?.mobile === true || /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+        isFront = handheld && track?.getSettings?.().facingMode === 'user'
       } catch {
         isFront = false
       }
