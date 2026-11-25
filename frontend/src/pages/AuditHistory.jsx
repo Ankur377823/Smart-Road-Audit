@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { getAudits } from "../services/api";
 import AppShell from "../components/layout/AppShell";
+import AuditReportButton from "../components/audit/AuditReportButton";
 import { EmptyState, Notice, PageHeader, Section, SkeletonPage, StatusBadge } from "../components/common/ui";
 import { IconChevronRight, IconPlus } from "../components/common/Icons";
 import { formatDate, formatRadius, formatScore } from "../utils/format";
@@ -62,8 +63,8 @@ function AuditHistory() {
                   {/* Phones and tablets: stacked list */}
                   <ul className="divide-y divide-slate-100 lg:hidden">
                     {audits.map((audit) => (
-                      <li key={audit.id}>
-                        <Link to={`/audits/${audit.id}`} className="flex items-center gap-3 px-4 py-4 active:bg-slate-50">
+                      <li key={audit.id} className="px-4 py-4">
+                        <Link to={`/audits/${audit.id}`} className="flex items-center gap-3 active:bg-slate-50">
                           <div className="min-w-0 flex-1">
                             <p className="truncate font-medium text-slate-900">{audit.location_name || "Unnamed audit"}</p>
                             <p className="mt-1 text-xs text-slate-500">
@@ -77,6 +78,9 @@ function AuditHistory() {
                           </div>
                           <IconChevronRight className="size-5 shrink-0 text-slate-400" />
                         </Link>
+                        <div className="mt-3">
+                          <AuditReportButton auditId={audit.id} className="btn btn-secondary px-3 py-2" />
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -115,13 +119,16 @@ function AuditHistory() {
                             <td className="px-6 py-4 font-medium text-slate-900">{formatScore(audit.compliance_score)}</td>
                             <td className="whitespace-nowrap px-6 py-4 text-slate-500">{formatDate(audit.created_at, { withTime: true })}</td>
                             <td className="px-6 py-4 text-right">
-                              <Link
-                                to={`/audits/${audit.id}`}
-                                onClick={(event) => event.stopPropagation()}
-                                className="font-semibold text-blue-600 hover:text-blue-700"
-                              >
-                                View
-                              </Link>
+                              <div className="flex items-start justify-end gap-4">
+                                <AuditReportButton auditId={audit.id} className="btn btn-secondary px-3 py-1.5 text-xs" />
+                                <Link
+                                  to={`/audits/${audit.id}`}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="py-1.5 font-semibold text-blue-600 hover:text-blue-700"
+                                >
+                                  View
+                                </Link>
+                              </div>
                             </td>
                           </tr>
                         ))}

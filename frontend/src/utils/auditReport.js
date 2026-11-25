@@ -1,4 +1,6 @@
 import { formatCoord } from '../components/pothole/geo'
+import { getAudit, getAuditChecklist, getAuditSegments } from '../services/api'
+import { getRiskContributions } from './auditRisk'
 import { preloadReportLibrary } from './potholeReport'
 
 /**
@@ -34,6 +36,21 @@ function dateLabel(value) {
 
 function capitalize(value) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : '–'
+}
+
+/** Loads an audit with its segments and checklist, then builds its report (for list pages). */
+export async function openAuditReportById(auditId, target) {
+  const [audit, segments, checklist] = await Promise.all([
+    getAudit(auditId),
+    getAuditSegments(auditId),
+    getAuditChecklist(auditId),
+  ])
+  await openAuditReport({
+    audit,
+    segments: (segments || []).map((segment) => ({ ...segment, contributions: getRiskContributions(segment) })),
+    checklist: checklist || [],
+    target,
+  })
 }
 
 /**

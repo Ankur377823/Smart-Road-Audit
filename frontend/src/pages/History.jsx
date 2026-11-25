@@ -7,6 +7,7 @@ import { openPotholeReport, openReportWindow, preloadReportLibrary } from "../ut
 import { recordToReport } from "../components/pothole/PotholeReportCard";
 import { defaultCategoryForRoadClass, DEFAULT_CARRIAGEWAY_WIDTH_M } from "../ml/pothole/irc82";
 import AppShell from "../components/layout/AppShell";
+import AuditReportButton from "../components/audit/AuditReportButton";
 import { Badge, EmptyState, Notice, PageHeader, SkeletonPage, StatusBadge } from "../components/common/ui";
 import { IconChevronRight, IconFileText, IconRoad, IconScan, IconTrash } from "../components/common/Icons";
 import { formatDate, formatRadius, parseApiDate } from "../utils/format";
@@ -28,14 +29,16 @@ function scanTitle(scan) {
 
 function AuditRow({ audit }) {
   return (
-    <li>
-      <Link to={`/audits/${audit.id}`} className="flex items-center gap-3 px-4 py-4 transition hover:bg-slate-50 sm:gap-4 sm:px-6">
+    <li className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:gap-4 sm:px-6">
+      <Link to={`/audits/${audit.id}`} className="group flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
           <IconRoad className="size-5" />
         </span>
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="truncate font-medium text-slate-900">{audit.location_name || `Audit #${audit.id}`}</span>
+            <span className="truncate font-medium text-slate-900 group-hover:text-blue-700">
+              {audit.location_name || `Audit #${audit.id}`}
+            </span>
             <StatusBadge status={audit.status} />
           </p>
           <p className="mt-1 text-xs text-slate-500">
@@ -43,9 +46,14 @@ function AuditRow({ audit }) {
             {formatRadius(audit.radius_m)} · {formatDate(audit.created_at, { withTime: true })}
           </p>
         </div>
-        <span className="hidden text-sm font-medium text-slate-600 sm:inline">Open audit</span>
-        <IconChevronRight className="size-5 shrink-0 text-slate-400" />
       </Link>
+      <div className="flex shrink-0 flex-wrap items-start gap-2 sm:justify-end">
+        <AuditReportButton auditId={audit.id} />
+        <Link to={`/audits/${audit.id}`} className="btn btn-secondary px-3 py-2">
+          Open audit
+          <IconChevronRight className="size-4" />
+        </Link>
+      </div>
     </li>
   );
 }
