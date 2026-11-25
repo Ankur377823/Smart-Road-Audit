@@ -5,8 +5,10 @@ import { generateAuditChecklist, getAudit, getAuditChecklist, getAuditSegments, 
 import AppShell from "../components/layout/AppShell";
 import PotholeReportCard from "../components/pothole/PotholeReportCard";
 import { Badge, EmptyState, Notice, PageHeader, RiskBadge, Section, SkeletonPage, StatCard, StatusBadge } from "../components/common/ui";
-import { IconChevronDown } from "../components/common/Icons";
+import { IconChevronDown, IconFileText } from "../components/common/Icons";
+import { openAuditReport } from "../utils/auditReport";
 import { formatDate, formatRadius, formatScore } from "../utils/format";
+import { openReportWindow } from "../utils/potholeReport";
 
 const RISK_LEVELS = ["low", "medium", "high", "critical"];
 const RISK_BAR = { low: "bg-emerald-500", medium: "bg-amber-500", high: "bg-orange-500", critical: "bg-red-500" };
@@ -322,6 +324,8 @@ function AuditDetails() {
   const [error, setError] = useState("");
   const [generatingChecklist, setGeneratingChecklist] = useState(false);
   const [checklistError, setChecklistError] = useState("");
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportError, setReportError] = useState("");
 
   useEffect(() => {
     if (!auditId) return;
@@ -348,6 +352,26 @@ function AuditDetails() {
       setChecklistError(err.message || "Unable to generate the checklist.");
     } finally {
       setGeneratingChecklist(false);
+    }
+  }
+
+  async function handleAuditReport() {
+    // Opened inside the click so mobile browsers don't block the new tab
+    const target = openReportWindow("Generating audit report…");
+    setReportBusy(true);
+    setReportError("");
+    try {
+      await openAuditReport({
+        audit,
+        segments: segments.map((segment) => ({ ...segment, contributions: getRiskContributions(segment) })),
+        checklist,
+        target,
+      });
+    } catch (err) {
+      target?.close();
+      setReportError(err.message || "Could not create the report.");
+    } finally {
+      setReportBusy(false);
     }
   }
 
@@ -416,7 +440,15 @@ function AuditDetails() {
         }
         onBack={backToAudits}
         backLabel="All audits"
+        actions={
+          <button type="button" onClick={handleAuditReport} disabled={reportBusy} className="btn btn-primary">
+            <IconFileText className="size-4" />
+            {reportBusy ? "Creating PDF…" : "Audit PDF report"}
+          </button>
+        }
       />
+
+      {reportError && <Notice tone="error" className="mb-4">{reportError}</Notice>}
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-5">
         <StatCard label="Audit radius" value={formatRadius(audit.radius_m)} />

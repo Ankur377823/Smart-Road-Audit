@@ -348,12 +348,12 @@ export async function openPotholeReport({ title, subtitle, potholes, survey, tar
 }
 
 /** Opens a placeholder tab synchronously (inside the click) so the PDF can be shown when ready. */
-export function openReportWindow() {
+export function openReportWindow(message = 'Generating pothole report…') {
   const win = window.open('', '_blank')
   if (win) {
     win.document.title = 'Generating report…'
     win.document.body.style.fontFamily = 'system-ui, sans-serif'
-    win.document.body.textContent = 'Generating pothole report…'
+    win.document.body.textContent = message
   }
   return win
 }
