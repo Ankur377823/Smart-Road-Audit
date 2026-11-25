@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { snapToRoad } from "../../services/api";
+import { searchLocations, snapToRoad } from "../../services/api";
 import { IconCheck, IconClose, IconCrosshair, IconPin } from "../common/Icons";
 
 const GOOGLE_MAPS_API_KEY =
@@ -36,6 +36,33 @@ function LocationPicker({
 
   const [error, setError] =
     useState("");
+
+  /*
+   * Search suggestions shown while typing.
+   */
+  const [suggestions, setSuggestions] =
+    useState([]);
+
+  const [showSuggestions, setShowSuggestions] =
+    useState(false);
+
+  const [activeSuggestion, setActiveSuggestion] =
+    useState(-1);
+
+  const [loadingSuggestions, setLoadingSuggestions] =
+    useState(false);
+
+  // Skips the suggestion lookup when the query was set by picking a result
+  const skipSuggestRef = useRef(false);
+
+  // Ignores responses that arrive after a newer query was typed
+  const suggestRequestRef = useRef(0);
+
+  // Google bills autocomplete per session; one token per search session
+  const sessionTokenRef = useRef(null);
+
+  // Set when Google Places is not enabled for the key; use the backend search instead
+  const placesUnavailableRef = useRef(false);
 
   /*
    * ========================================================
@@ -776,6 +803,244 @@ function LocationPicker({
 
   /*
    * ========================================================
+   * SEARCH SUGGESTIONS
+   * ========================================================
+   */
+
+  /*
+   * Google Places autocomplete: covers roads, villages and
+   * landmarks worldwide. Each suggestion resolves to a point
+   * only when picked.
+   */
+  async function fetchGoogleSuggestions(query) {
+    const {
+      AutocompleteSuggestion,
+      AutocompleteSessionToken,
+    } =
+      await window.google.maps.importLibrary(
+        "places"
+      );
+
+    if (!sessionTokenRef.current) {
+      sessionTokenRef.current =
+        new AutocompleteSessionToken();
+    }
+
+    const map = mapInstanceRef.current;
+
+    const { suggestions: results } =
+      await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+        input: query,
+        sessionToken: sessionTokenRef.current,
+        // Prefer results near the map view without excluding the rest of the world
+        ...(map?.getCenter()
+          ? { origin: map.getCenter() }
+          : {}),
+      });
+
+    return results
+      .map((item) => item.placePrediction)
+      .filter(Boolean)
+      .map((prediction) => ({
+        id: prediction.placeId,
+        main:
+          prediction.mainText?.text ||
+          prediction.text.text,
+        secondary:
+          prediction.secondaryText?.text || "",
+        resolve: async () => {
+          const place = prediction.toPlace();
+
+          await place.fetchFields({
+            fields: [
+              "location",
+              "formattedAddress",
+            ],
+          });
+
+          return {
+            latitude: place.location.lat(),
+            longitude: place.location.lng(),
+            label:
+              place.formattedAddress ||
+              prediction.text.text,
+          };
+        },
+      }));
+  }
+
+  /*
+   * Fallback: the backend location search (OpenStreetMap),
+   * used when Google Places is not enabled for the key.
+   */
+  async function fetchBackendSuggestions(query) {
+    const data =
+      await searchLocations(query, 6);
+
+    return (data?.results || [])
+      .filter(
+        (item) =>
+          item.latitude != null &&
+          item.longitude != null
+      )
+      .map((item) => {
+        const [main, ...rest] =
+          (item.name || "").split(", ");
+
+        return {
+          id: `osm-${item.place_id}`,
+          main,
+          secondary: rest.join(", "),
+          resolve: async () => ({
+            latitude: item.latitude,
+            longitude: item.longitude,
+            label: item.name,
+          }),
+        };
+      });
+  }
+
+  useEffect(() => {
+    if (skipSuggestRef.current) {
+      skipSuggestRef.current = false;
+      return;
+    }
+
+    const query = searchQuery.trim();
+
+    if (query.length < 2 || !googleLoaded) {
+      setSuggestions([]);
+      setLoadingSuggestions(false);
+      return;
+    }
+
+    const requestId =
+      ++suggestRequestRef.current;
+
+    setLoadingSuggestions(true);
+
+    // Wait until typing pauses before asking for suggestions
+    const timer = setTimeout(async () => {
+      let results = [];
+
+      if (!placesUnavailableRef.current) {
+        try {
+          results =
+            await fetchGoogleSuggestions(query);
+        } catch (err) {
+          console.warn(
+            "Google Places suggestions unavailable, using backend search:",
+            err
+          );
+
+          placesUnavailableRef.current = true;
+        }
+      }
+
+      if (placesUnavailableRef.current) {
+        try {
+          results =
+            await fetchBackendSuggestions(query);
+        } catch (err) {
+          console.error(
+            "Location suggestions failed:",
+            err
+          );
+        }
+      }
+
+      if (requestId !== suggestRequestRef.current) {
+        return;
+      }
+
+      setSuggestions(results);
+      setActiveSuggestion(-1);
+      setShowSuggestions(true);
+      setLoadingSuggestions(false);
+    }, 300);
+
+    return () => clearTimeout(timer);
+    // fetch* helpers only read refs, so the query is the real trigger
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, googleLoaded]);
+
+  async function pickSuggestion(suggestion) {
+    setShowSuggestions(false);
+    setSuggestions([]);
+    setError("");
+
+    try {
+      setSearching(true);
+
+      const {
+        latitude,
+        longitude,
+        label,
+      } = await suggestion.resolve();
+
+      // The next session starts with a fresh token
+      sessionTokenRef.current = null;
+
+      skipSuggestRef.current = true;
+      setSearchQuery(label);
+
+      await selectPoint(
+        latitude,
+        longitude
+      );
+    } catch (err) {
+      console.error(
+        "Suggestion selection failed:",
+        err
+      );
+
+      setError(
+        "Unable to open this place. Try another suggestion or tap the map."
+      );
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleSearchKeyDown(event) {
+    const open =
+      showSuggestions &&
+      suggestions.length > 0;
+
+    if (open && event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveSuggestion(
+        (index) =>
+          (index + 1) % suggestions.length
+      );
+    } else if (open && event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveSuggestion(
+        (index) =>
+          (index <= 0
+            ? suggestions.length
+            : index) - 1
+      );
+    } else if (event.key === "Escape") {
+      setShowSuggestions(false);
+    } else if (event.key === "Enter") {
+      if (open && activeSuggestion >= 0) {
+        event.preventDefault();
+        pickSuggestion(
+          suggestions[activeSuggestion]
+        );
+      } else if (open) {
+        // Enter without choosing: take the top suggestion
+        event.preventDefault();
+        pickSuggestion(suggestions[0]);
+      } else {
+        handleSearch(event);
+      }
+    }
+  }
+
+  /*
+   * ========================================================
    * SEARCH LOCATION
    * ========================================================
    */
@@ -844,6 +1109,8 @@ function LocationPicker({
         longitude
       );
 
+      skipSuggestRef.current = true;
+      setShowSuggestions(false);
       setSearchQuery(
         firstResult.formatted_address ||
           query
@@ -951,26 +1218,101 @@ function LocationPicker({
             <input
               type="text"
               value={searchQuery}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  handleSearch(event);
-                }
-              }}
+              onKeyDown={handleSearchKeyDown}
               onChange={(event) =>
                 setSearchQuery(
                   event.target.value
                 )
               }
+              onFocus={() =>
+                suggestions.length > 0 &&
+                setShowSuggestions(true)
+              }
+              onBlur={() =>
+                setShowSuggestions(false)
+              }
               placeholder="Search road, area, or address..."
+              autoComplete="off"
+              role="combobox"
+              aria-expanded={
+                showSuggestions &&
+                suggestions.length > 0
+              }
+              aria-controls="location-suggestions"
+              aria-autocomplete="list"
               className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 pr-10 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
             />
+
+            {showSuggestions &&
+              searchQuery.trim().length >= 2 && (
+                <ul
+                  id="location-suggestions"
+                  role="listbox"
+                  className="absolute left-0 right-0 top-full z-30 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  {suggestions.length === 0 ? (
+                    <li className="px-4 py-3 text-sm text-slate-500">
+                      {loadingSuggestions
+                        ? "Searching..."
+                        : "No places found. Try another name or tap the map."}
+                    </li>
+                  ) : (
+                    suggestions.map(
+                      (suggestion, index) => (
+                        <li
+                          key={suggestion.id}
+                          role="option"
+                          aria-selected={
+                            index ===
+                            activeSuggestion
+                          }
+                          // mousedown fires before the input's blur closes the list
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            pickSuggestion(
+                              suggestion
+                            );
+                          }}
+                          onMouseEnter={() =>
+                            setActiveSuggestion(
+                              index
+                            )
+                          }
+                          className={`flex cursor-pointer items-start gap-3 px-4 py-2.5 ${
+                            index ===
+                            activeSuggestion
+                              ? "bg-slate-100"
+                              : ""
+                          }`}
+                        >
+                          <IconPin className="mt-0.5 size-4 shrink-0 text-slate-400" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-slate-900">
+                              {suggestion.main}
+                            </span>
+                            {suggestion.secondary && (
+                              <span className="block truncate text-xs text-slate-500">
+                                {
+                                  suggestion.secondary
+                                }
+                              </span>
+                            )}
+                          </span>
+                        </li>
+                      )
+                    )
+                  )}
+                </ul>
+              )}
 
             {searchQuery && (
               <button
                 type="button"
-                onClick={() =>
-                  setSearchQuery("")
-                }
+                onClick={() => {
+                  setSearchQuery("");
+                  setSuggestions([]);
+                  setShowSuggestions(false);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
                 aria-label="Clear search"
               >

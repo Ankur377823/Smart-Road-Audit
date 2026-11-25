@@ -4,7 +4,8 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-router.include_router(locations.router, prefix="/locations", tags=["locations"])
+# locations.router already carries the /locations prefix
+router.include_router(locations.router, tags=["locations"])
 router.include_router(audits.router, tags=["audits"])
 router.include_router(checklist.router, tags=["checklist"])
 router.include_router(segments.router, tags=["segments"])
